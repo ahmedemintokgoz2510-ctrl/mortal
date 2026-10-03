@@ -13,7 +13,7 @@ const PORT = process.env.PORT || 3000;
 app.use(express.static(path.join(__dirname, 'public')));
 
 const CHARACTERS = ['flame', 'ice'];
-const ACTIONS = ['left', 'right', 'jump', 'crouch', 'punch', 'kick', 'block'];
+const ACTIONS = ['left', 'right', 'jump', 'crouch', 'punch', 'kick', 'block', 'special'];
 const SLOTS = ['P1', 'P2'];
 
 // code -> { hostId, started, players: { P1: {id, character, ready}|null, P2: ... } }
@@ -94,6 +94,14 @@ io.on('connection', (socket) => {
 
   socket.on('host:reset', () => {
     if (socket.data.role === 'host') resetToLobby(socket.data.code);
+  });
+
+  // Özel vuruş doluluk oranını ilgili telefona ilet
+  socket.on('host:charge', ({ slot, charge } = {}) => {
+    if (socket.data.role !== 'host') return;
+    const room = rooms.get(socket.data.code);
+    const p = room && room.players[slot];
+    if (p) io.to(p.id).emit('special:charge', charge);
   });
 
   // ---------- CONTROLLER (telefon) ----------
