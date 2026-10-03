@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dövüş Arenası — Tahta</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&family=Barlow+Condensed:wght@500;700&display=swap">
+<style>
+  :root {
+    --ink: #14110f; --ash: #2a2623; --bone: #d8cfbf;
+    --ember: #a3382c; --frost: #4f6f86; --gold: #b08d43;
+    --display: 'Cinzel', 'Times New Roman', serif;
+    --body: 'Barlow Condensed', 'Arial Narrow', sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--ink); color: var(--bone); font-family: var(--body); font-weight: 500; }
+  canvas { display: block; position: fixed; inset: 0; }
+
+  /* ---------- LOBİ ---------- */
+  #lobby {
+    position: fixed; inset: 0; z-index: 10; background: var(--ink);
+    display: grid; grid-template-columns: 1fr 1fr; gap: 5vw; align-items: center;
+    padding: 6vh 6vw;
+  }
+  #lobby h1 { font-family: var(--display); font-weight: 800; font-size: 5.2vw; line-height: 1.05; margin: 0 0 2vh; letter-spacing: .04em; }
+  #lobby p.lead { font-size: 2.2vw; margin: 0 0 4vh; max-width: 30ch; line-height: 1.2; }
+  .qrbox { display: inline-flex; flex-direction: column; gap: 2vh; }
+  #qr { background: #e8e0d0; padding: 1.2vw; width: max-content; line-height: 0; }
+  #roomCode { font-family: var(--display); font-weight: 800; font-size: 3.6vw; color: var(--gold); letter-spacing: .08em; }
+  #joinUrl { font-size: 1.3vw; opacity: .6; word-break: break-all; max-width: 28vw; }
+  .slots { display: grid; gap: 3vh; }
+  .slot {
+    background: var(--ash); border-left: .8vw solid #4a433c; padding: 3vh 2.5vw;
+    display: grid; gap: .6vh; transition: border-color .2s;
+  }
+  .slot .who { font-family: var(--display); font-weight: 800; font-size: 2.6vw; }
+  .slot .state { font-size: 2.2vw; opacity: .85; }
+  .slot.flame { border-color: var(--ember); }
+  .slot.ice { border-color: var(--frost); }
+  .slot.ready .state { color: var(--gold); opacity: 1; font-weight: 700; }
+
+  /* ---------- HUD ---------- */
+  #hud {
+    position: fixed; top: 2.5vh; left: 3vw; right: 3vw; z-index: 5; display: none;
+    grid-template-columns: 1fr auto 1fr; gap: 2vw; align-items: start; pointer-events: none;
+  }
+  .side .name { font-family: var(--display); font-weight: 800; font-size: 1.7vw; margin-bottom: .6vh; letter-spacing: .03em; }
+  .side.p2 .name { text-align: right; }
+  .bar { position: relative; height: 3.2vh; background: #1a1613; border: 4px solid #8a7548; overflow: hidden; }
+  .side.p2 .bar { transform: scaleX(-1); }
+  .bar .chip, .bar .fill { position: absolute; inset: 0 auto 0 0; width: 100%; }
+  .bar .chip { background: #7a2a22; }
+  .bar .fill { background: var(--gold); }
+  .vs { font-family: var(--display); font-weight: 800; font-size: 2vw; padding-top: 1vh; color: var(--gold); }
+
+  #banner {
+    position: fixed; inset: 0; z-index: 6; display: none; place-items: center; text-align: center;
+    font-family: var(--display); font-weight: 800; font-size: 8vw; letter-spacing: .06em; pointer-events: none;
+    text-shadow: 0 .5vw 0 rgba(0,0,0,.6);
+  }
+  #banner small { display: block; font-family: var(--body); font-weight: 700; font-size: 2.6vw; opacity: .8; margin-top: 1vh; }
+  #closed {
+    position: fixed; inset: 0; z-index: 20; display: none; place-items: center;
+    background: rgba(20,17,15,.92); font-family: var(--display); font-weight: 800; font-size: 3vw; text-align: center;
+  }
+
+  @media (max-aspect-ratio: 1/1) {
+    #lobby { grid-template-columns: 1fr; }
+    #lobby h1 { font-size: 9vw; } #lobby p.lead { font-size: 4vw; }
+    #roomCode { font-size: 8vw; } .slot .who { font-size: 5vw; } .slot .state { font-size: 4vw; }
+    #joinUrl { font-size: 2.4vw; max-width: 80vw; }
+  }
+</style>
+</head>
+<body>
+
+<!-- LOBİ -->
+<div id="lobby">
+  <div>
+    <h1>DÖVÜŞ<br>ARENASI</h1>
+    <p class="lead">Telefonunla QR kodu tara, karakterini seç ve HAZIR'a bas.</p>
+    <div class="qrbox">
+      <div id="qr"></div>
+      <div id="roomCode">ROOM-····</div>
+      <div id="joinUrl"></div>
+    </div>
+  </div>
+  <div class="slots">
+    <div class="slot" id="slotP1"><div class="who">P1</div><div class="state">Bekleniyor…</div></div>
+    <div class="slot" id="slotP2"><div class="who">P2</div><div class="state">Bekleniyor…</div></div>
+  </div>
+</div>
+
+<!-- HUD -->
+<div id="hud">
+  <div class="side p1">
+    <div class="name" id="nameP1">P1</div>
+    <div class="bar"><div class="chip" id="chipP1"></div><div class="fill" id="fillP1"></div></div>
+  </div>
+  <div class="vs">VS</div>
+  <div class="side p2">
+    <div class="name" id="nameP2">P2</div>
+    <div class="bar"><div class="chip" id="chipP2"></div><div class="fill" id="fillP2"></div></div>
+  </div>
+</div>
+<div id="banner"></div>
+<div id="closed">Bağlantı koptu.<br>Sayfayı yenile.</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script type="importmap">
+  { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+const $ = (id) => document.getElementById(id);
+const socket = io();
+
+const CHARS = {
+  flame: { name: 'Flame Warrior', color: 0xa3382c },
+  ice:   { name: 'Ice Ninja',     color: 0x4f6f86, mask: true },
+};
+
+/* =========================================================
+   LOBİ
+   ========================================================= */
+socket.on('connect', () => socket.emit('host:create'));
+
+socket.on('host:created', ({ code, url }) => {
+  $('roomCode').textContent = code;
+  $('joinUrl').textContent = url;
+  $('qr').innerHTML = '';
+  new QRCode($('qr'), {
+    text: url, width: 260, height: 260,
+    colorDark: '#14110f', colorLight: '#e8e0d0',
+    correctLevel: QRCode.CorrectLevel.M,
+  });
+});
+
+socket.on('lobby:state', (st) => {
+  for (const s of ['P1', 'P2']) {
+    const el = $('slot' + s), p = st[s];
+    el.className = 'slot';
+    const state = el.querySelector('.state');
+    if (!p.connected) { state.textContent = 'Bekleniyor…'; continue; }
+    if (!p.character) { state.textContent = 'Bağlandı · karakter seçiyor'; continue; }
+    el.classList.add(p.character);
+    if (p.ready) { el.classList.add('ready'); state.textContent = CHARS[p.character].name + ' · HAZIR'; }
+    else state.textContent = CHARS[p.character].name + ' seçildi';
+  }
+});
+
+socket.on('game:start', ({ players }) => {
+  $('lobby').style.display = 'none';
+  startGame(players);
+});
+
+socket.on('lobby:reset', () => {
+  stopGame();
+  $('lobby').style.display = 'grid';
+});
+
+socket.on('room:closed', () => { $('closed').style.display = 'grid'; });
+socket.on('disconnect', () => { $('closed').style.display = 'grid'; });
+
+/* =========================================================
+   SAHNE
+   ========================================================= */
+const ARENA = 8;            // x sınırı
+const W = 1.0, H = 2.4, CH = 1.4, D = 0.7; // gövde ölçüleri (ayakta / eğilmiş)
+const SPEED = 5, JUMP = 11, GRAVITY = 28;
+
+const ATTACKS = {
+  punch:    { start: .09, end: .20, total: .34, dmg: 6,  reach: 1.0, y0: 1.45, y1: 2.05, push: 5, lunge: 2.5 },
+  kick:     { start: .16, end: .32, total: .55, dmg: 10, reach: 1.4, y0: .6,   y1: 1.5,  push: 8, lunge: 3 },
+  // Özel vuruşlar: eğil + yumruk / eğil + tekme (blok delinir, rakip yere düşer)
+  uppercut: { start: .12, end: .28, total: .62, dmg: 14, reach: 1.0, y0: .4,   y1: 2.7,  push: 3, knock: true, launch: 9, lunge: 1.5 },
+  sweep:    { start: .18, end: .34, total: .68, dmg: 12, reach: 1.5, y0: 0,    y1: .5,   push: 6, knock: true, launch: 5, lunge: 3.5 },
+  // Havada
+  jpunch:   { start: .06, end: .30, total: .45, dmg: 7,  reach: 1.0, y0: 1.2,  y1: 2.0,  push: 5 },
+  jkick:    { start: .06, end: .32, total: .45, dmg: 9,  reach: 1.3, y0: .2,   y1: 1.1,  push: 6 },
+};
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x14110f);
+scene.fog = new THREE.Fog(0x14110f, 24, 50);
+
+// Sabit kamera: yandan görünüm
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 100);
+const CAM_BASE = new THREE.Vector3(0, 3.2, 17);
+camera.position.copy(CAM_BASE);
+camera.lookAt(0, 2.0, 0);
+
+// Işıklar
+scene.add(new THREE.HemisphereLight(0xcfc4b0, 0x2a2420, 0.75));
+const sun = new THREE.DirectionalLight(0xfff1dc, 1.2);
+sun.position.set(4, 12, 8);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -14, right: 14, top: 10, bottom: -6, near: 1, far: 40 });
+scene.add(sun);
+const torchL = new THREE.PointLight(0xd08a3c, 28, 24); torchL.position.set(-10, 4, 2); scene.add(torchL);
+const torchR = new THREE.PointLight(0xd08a3c, 28, 24); torchR.position.set(10, 4, 2); scene.add(torchR);
+
+// Zemin
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(40, 14),
+  new THREE.MeshStandardMaterial({ color: 0x3a342f, roughness: .9 })
+);
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+// Zemin çizgileri (derinlik hissi)
+const lineMat = new THREE.MeshBasicMaterial({ color: 0x2c2723 });
+for (let i = -ARENA; i <= ARENA; i += 2) {
+  const l = new THREE.Mesh(new THREE.PlaneGeometry(0.05, 12), lineMat);
+  l.rotation.x = -Math.PI / 2; l.position.set(i, 0.01, -1); scene.add(l);
+}
+
+// Arka duvar + sütunlar
+const wall = new THREE.Mesh(
+  new THREE.BoxGeometry(40, 14, 0.5),
+  new THREE.MeshStandardMaterial({ color: 0x211d19, roughness: 1 })
+);
+wall.position.set(0, 7, -6); wall.receiveShadow = true; scene.add(wall);
+for (let i = -3; i <= 3; i++) {
+  const p = new THREE.Mesh(
+    new THREE.BoxGeometry(1.2, 10, 1.2),
+    new THREE.MeshStandardMaterial({ color: 0x302b26, roughness: .95 })
+  );
+  p.position.set(i * 5, 5, -5); p.castShadow = true; p.receiveShadow = true; scene.add(p);
+}
+
+// Arka duvarda ejderha madalyonu (altın halka + koyu kırmızı zemin)
+const medal = new THREE.Group();
+medal.add(new THREE.Mesh(new THREE.CircleGeometry(2.4, 48), new THREE.MeshStandardMaterial({ color: 0x4a1c17, roughness: 1 })));
+const ring = new THREE.Mesh(new THREE.RingGeometry(2.4, 2.9, 48), new THREE.MeshStandardMaterial({ color: 0x8a6d34, roughness: .8 }));
+ring.position.z = .01; medal.add(ring);
+medal.position.set(0, 6.6, -5.7); scene.add(medal);
+
+// Mangal sehpaları (köşelerde, sönük alev)
+for (const sx of [-10, 10]) {
+  const stand = new THREE.Mesh(new THREE.CylinderGeometry(.35, .5, 2.6, 10), new THREE.MeshStandardMaterial({ color: 0x2a2521, roughness: 1 }));
+  stand.position.set(sx, 1.3, -3); stand.castShadow = true; scene.add(stand);
+  const flame = new THREE.Mesh(new THREE.ConeGeometry(.3, .7, 8), new THREE.MeshBasicMaterial({ color: 0xb9742c }));
+  flame.position.set(sx, 3, -3); scene.add(flame);
+}
+
+addEventListener('resize', () => {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+});
+
+/* =========================================================
+   DÖVÜŞÇÜ
+   ========================================================= */
+// Poz: [gövde eğimi, kalça yüksekliği, ön kol omuz, ön kol dirsek, arka kol omuz, arka kol dirsek,
+//       ön bacak kalça, ön bacak diz, arka bacak kalça, arka bacak diz]  (derece, + = öne)
+const P = (...a) => a;
+const POSE = {
+  guard:    P(-4, 1.04, 45, 85, 28, 105, 14, -24, -14, -20),
+  crouch:   P(-12, .70, 45, 85, 28, 105, 72, -105, 58, -100),
+  jump:     P(-6, 1.10, 70, 70, -25, 50, 60, -85, -8, -45),
+  block:    P(-8, 1.02, 75, 115, 65, 125, 20, -26, -18, -20),
+  hit:      P(16, 1.02, -25, 40, -35, 30, 8, -18, -12, -12),
+  punch:    P(-14, 1.02, 92, 6, 10, 120, 24, -30, -22, -14),
+  kick:     P(14, 1.02, 30, 70, -20, 60, 100, -8, -6, -12),
+  uppercut: P(-18, .85, 150, 20, 20, 110, 60, -90, 40, -85),
+  sweep:    P(10, .55, 40, 80, 20, 100, 88, -2, 70, -140),
+  jpunch:   P(-14, 1.10, 92, 6, 10, 120, 70, -80, -5, -50),
+  jkick:    P(16, 1.10, 20, 60, -30, 60, 95, -6, -10, -60),
+};
+const SKIN = 0xb08f76;
+
+class Fighter {
+  constructor(slot, charKey, x) {
+    this.slot = slot;
+    this.char = CHARS[charKey];
+    this.x = x; this.y = 0; this.vy = 0; this.kx = 0;
+    this.facing = x < 0 ? 1 : -1;
+    this.hp = 100; this.chip = 100;
+    this.keys = { left: false, right: false, jump: false, crouch: false, block: false };
+    this.attack = null; this.stun = 0; this.down = 0; this.fall = 0;
+    this.crouching = false; this.blocking = false; this.ko = false;
+    this.moving = 0; this.ph = 0; this.jumpReady = true;
+    this.cur = POSE.guard.slice();
+
+    const col = new THREE.Color(this.char.color);
+    this.mat = new THREE.MeshStandardMaterial({ color: col, roughness: .8 });
+    const pants = new THREE.MeshStandardMaterial({ color: col.clone().multiplyScalar(.4), roughness: .9 });
+    const skin = new THREE.MeshStandardMaterial({ color: SKIN, roughness: .8 });
+    const sash = new THREE.MeshStandardMaterial({ color: 0xd8cfbf, roughness: .8 });
+
+    const add = (parent, geo, mat, x = 0, y = 0, z = 0) => {
+      const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; parent.add(m); return m;
+    };
+    // üstten eklemli uzuv parçası
+    const seg = (parent, L, r, mat, x, y, z) => {
+      const g = new THREE.Group(); g.position.set(x, y, z);
+      add(g, new THREE.CapsuleGeometry(r, L - 2 * r, 4, 10), mat, 0, -L / 2, 0);
+      parent.add(g); return g;
+    };
+
+    this.root = new THREE.Group();
+    this.tilt = new THREE.Group(); this.root.add(this.tilt);
+    this.hips = new THREE.Group(); this.tilt.add(this.hips);
+    add(this.hips, new THREE.SphereGeometry(.24, 12, 8), pants);
+    this.torso = new THREE.Group(); this.hips.add(this.torso);
+    add(this.torso, new THREE.CapsuleGeometry(.25, .42, 4, 10), this.mat, 0, .42, 0);
+    add(this.torso, new THREE.CylinderGeometry(.27, .27, .12, 14), sash, 0, .06, 0);   // kemer
+    this.head = new THREE.Group(); this.head.position.y = .98; this.torso.add(this.head);
+    add(this.head, new THREE.SphereGeometry(.2, 14, 12), this.char.mask ? pants : skin, 0, .2, 0);
+    add(this.head, new THREE.CylinderGeometry(.205, .205, .07, 14), sash, 0, .27, 0);  // bandaj
+
+    const arm = (z) => {
+      const sh = seg(this.torso, .4, .08, this.mat, 0, .78, z);
+      const el = seg(sh, .4, .075, skin, 0, -.4, 0);
+      add(el, new THREE.SphereGeometry(.1, 10, 8), skin, 0, -.42, 0);
+      return { sh, el };
+    };
+    const leg = (z) => {
+      const th = seg(this.hips, .52, .12, pants, 0, 0, z);
+      const kn = seg(th, .52, .1, pants, 0, -.52, 0);
+      add(kn, new THREE.BoxGeometry(.36, .1, .17), pants, .08, -.5, 0);
+      return { th, kn };
+    };
+    this.nArm = arm(.3);  this.fArm = arm(-.3);
+    this.nLeg = leg(.14); this.fLeg = leg(-.14);
+
+    this.marker = new THREE.Mesh(new THREE.OctahedronGeometry(.2), new THREE.MeshBasicMaterial({ color: slot === 'P1' ? 0xd8cfbf : 0xb08d43 }));
+    this.root.add(this.marker);
+    this.shield = new THREE.Mesh(new THREE.BoxGeometry(.12, 1.9, 1.1), new THREE.MeshBasicMaterial({ color: 0xb9ad98, transparent: true, opacity: .35 }));
+    this.shield.visible = false; this.root.add(this.shield);
+    scene.add(this.root);
+  }
+
+  get height() { return this.crouching ? CH : H; }
+  get group() { return this.root; }
+
+  box() {
+    return new THREE.Box3(
+      new THREE.Vector3(this.x - W / 2, this.y, -D / 2),
+      new THREE.Vector3(this.x + W / 2, this.y + this.height, D / 2)
+    );
+  }
+
+  // Vuruş türü duruma göre seçilir: havada / eğilmişken (özel) / normal
+  startAttack(kind) {
+    if (this.ko || this.down > 0 || this.attack || this.stun > 0 || this.blocking) return;
+    let type = kind;
+    if (this.y > 0.05) type = kind === 'punch' ? 'jpunch' : 'jkick';
+    else if (this.keys.crouch) type = kind === 'punch' ? 'uppercut' : 'sweep';
+    this.attack = { type, t: 0, hit: false };
+  }
+
+  attackBox() {
+    const a = ATTACKS[this.attack.type];
+    const x0 = this.x + this.facing * (W / 2);
+    const x1 = this.x + this.facing * (W / 2 + a.reach);
+    return new THREE.Box3(
+      new THREE.Vector3(Math.min(x0, x1), this.y + a.y0, -0.5),
+      new THREE.Vector3(Math.max(x0, x1), this.y + a.y1, 0.5)
+    );
+  }
+
+  takeHit(from, a) {
+    const guarded = this.blocking && !a.knock;       // özel vuruşlar bloku deler
+    const dmg = guarded ? Math.max(1, Math.round(a.dmg * 0.2)) : a.dmg;
+    this.hp = Math.max(0, this.hp - dmg);
+    this.stun = guarded ? .12 : .28;
+    this.attack = null;
+    this.kx = from.facing * a.push * (guarded ? .5 : 1);
+    if (a.knock && !guarded) { this.down = .9; this.vy = a.launch; }
+    return guarded;
+  }
+
+  update(dt, foe) {
+    const k = this.keys, g = this.y <= 0;
+    if (this.down > 0) {                              // yerde: kontrol yok, dokunulmaz
+      this.attack = null; this.stun = 0; this.blocking = this.crouching = false; this.moving = 0;
+      if (!this.ko && g) this.down -= dt;
+    } else {
+      this.facing = Math.sign(foe.x - this.x) || this.facing;
+      if (this.stun > 0) { this.stun -= dt; this.blocking = this.crouching = false; this.moving = 0; }
+      else {
+        this.blocking  = k.block  && g && !this.attack;
+        this.crouching = k.crouch && g && !this.attack;
+        const canMove = !(this.attack && g) && !this.blocking && !this.crouching;
+        const dir = (k.right ? 1 : 0) - (k.left ? 1 : 0);
+        this.moving = canMove && g ? dir : 0;
+        if (canMove) {
+          this.x += dir * SPEED * dt;
+          if (k.jump && g && this.jumpReady) { this.vy = JUMP; this.jumpReady = false; }
+        }
+      }
+      if (!k.jump) this.jumpReady = true;
+    }
+
+    if (this.attack) {
+      const a = ATTACKS[this.attack.type];
+      this.attack.t += dt;
+      if (g && this.attack.t > a.start && this.attack.t < a.end) this.x += this.facing * (a.lunge || 0) * dt;
+      if (this.attack.t >= a.total) this.attack = null;
+    }
+
+    this.vy -= GRAVITY * dt;
+    this.y += this.vy * dt;
+    if (this.y <= 0) { this.y = 0; if (this.vy < 0) this.vy = 0; }
+    this.x += this.kx * dt;
+    this.kx *= Math.pow(.001, dt);
+    this.x = Math.max(-ARENA, Math.min(ARENA, this.x));
+  }
+
+  render(time, dt) {
+    // 1) hedef poz
+    let base = this.stun > 0 ? POSE.hit : this.blocking ? POSE.block : this.crouching ? POSE.crouch : this.y > 0.05 ? POSE.jump : POSE.guard;
+    const t = base.slice();
+    if (this.moving && !this.attack) {                // yürüme döngüsü
+      this.ph += dt * 9;
+      const s = Math.sin(this.ph), c = Math.sin(this.ph + 1.2);
+      t[6] += 30 * s; t[8] -= 30 * s;
+      t[7] -= 14 + 14 * Math.max(0, c); t[9] -= 14 + 14 * Math.max(0, -c);
+      t[1] -= .03 * Math.abs(Math.cos(this.ph));
+    } else t[1] += Math.sin(time * 2.4 + (this.slot === 'P1' ? 0 : 2)) * .012;   // nefes
+
+    if (this.attack) {                                // saldırı pozuna geçiş
+      const a = ATTACKS[this.attack.type], tt = this.attack.t, S = POSE[this.attack.type];
+      const k = tt < a.start ? tt / a.start : tt < a.end ? 1 : 1 - (tt - a.end) / (a.total - a.end);
+      for (let i = 0; i < t.length; i++) t[i] += (S[i] - t[i]) * Math.max(0, k);
+    }
+
+    // 2) yumuşatma ve uygulama
+    const f = 1 - Math.exp(-dt * 24), R = THREE.MathUtils.degToRad;
+    for (let i = 0; i < t.length; i++) this.cur[i] += (t[i] - this.cur[i]) * f;
+    const c = this.cur;
+    this.hips.position.y = c[1];
+    this.torso.rotation.z = R(c[0]); this.head.rotation.z = -R(c[0]) * .6;
+    this.nArm.sh.rotation.z = R(c[2]); this.nArm.el.rotation.z = R(c[3]);
+    this.fArm.sh.rotation.z = R(c[4]); this.fArm.el.rotation.z = R(c[5]);
+    this.nLeg.th.rotation.z = R(c[6]); this.nLeg.kn.rotation.z = R(c[7]);
+    this.fLeg.th.rotation.z = R(c[8]); this.fLeg.kn.rotation.z = R(c[9]);
+
+    // 3) düşme, konum, efektler
+    this.fall += ((this.down > 0 ? 1 : 0) - this.fall) * (1 - Math.exp(-dt * (this.ko ? 8 : 14)));
+    this.tilt.rotation.z = this.fall * 1.5;
+    this.tilt.position.y = .3 * this.fall;
+    this.root.position.set(this.x, this.y, 0);
+    this.root.scale.x = this.facing;
+
+    const hurt = this.stun > 0;
+    this.mat.emissive.setHex(hurt ? 0x6b625a : 0x000000);
+    this.mat.emissiveIntensity = 1;
+    this.shield.visible = this.blocking;
+    this.shield.position.set(.75, 1.3, 0);
+    this.marker.visible = !this.ko;
+    this.marker.position.set(0, 2.85 - 1.2 * this.fall + Math.sin(time * 4) * .06, 0);
+    this.marker.rotation.y = time * 2;
+  }
+}
+
+/* =========================================================
+   OYUN DÖNGÜSÜ
+   ========================================================= */
+let fighters = null;     // { P1, P2 }
+let phase = 'idle';      // idle | intro | fight | over
+let phaseTimer = 0;
+let shake = 0;
+
+function banner(html) {
+  const b = $('banner');
+  if (!html) { b.style.display = 'none'; return; }
+  b.innerHTML = '<div>' + html + '</div>';
+  b.style.display = 'grid';
+}
+
+function startGame(players) {
+  stopGame();
+  fighters = {
+    P1: new Fighter('P1', players.P1.character, -3),
+    P2: new Fighter('P2', players.P2.character,  3),
+  };
+  $('nameP1').textContent = 'P1 · ' + fighters.P1.char.name;
+  $('nameP2').textContent = 'P2 · ' + fighters.P2.char.name;
+  $('hud').style.display = 'grid';
+  phase = 'intro'; phaseTimer = 1.4;
+  banner('DÖVÜŞ!');
+}
+
+function stopGame() {
+  if (fighters) for (const f of Object.values(fighters)) scene.remove(f.group);
+  fighters = null; phase = 'idle';
+  $('hud').style.display = 'none';
+  banner(null);
+}
+
+// Telefondan gelen girdiler
+socket.on('input', ({ slot, action, pressed }) => {
+  if (!fighters || phase !== 'fight') return;
+  const f = fighters[slot];
+  if (!f) return;
+  if (action === 'punch' || action === 'kick') { if (pressed) f.startAttack(action); }
+  else f.keys[action] = pressed;
+});
+
+function resolveHits(att, def) {
+  if (!att.attack || att.attack.hit || att.ko || def.down > 0) return;
+  const a = ATTACKS[att.attack.type], t = att.attack.t;
+  if (t < a.start || t > a.end) return;
+  if (att.attackBox().intersectsBox(def.box())) {
+    att.attack.hit = true;
+    const guarded = def.takeHit(att, a);
+    shake = guarded ? .08 : (a.knock ? .4 : .25);
+    if (def.hp <= 0) endRound(att, def);
+  }
+}
+
+function endRound(winner, loser) {
+  phase = 'over'; phaseTimer = 4;
+  loser.ko = true; loser.down = 1; loser.kx = winner.facing * 6;
+  winner.keys = { left: false, right: false, jump: false, crouch: false, block: false };
+  banner('<span style="color:#a3382c">K.O.</span><small>' + winner.slot + ' · ' + winner.char.name + ' kazandı</small>');
+}
+
+function separate(a, b) {
+  if (Math.abs(a.y - b.y) > 1.4) return;           // üstünden zıplayarak geçilebilir
+  const dx = b.x - a.x, overlap = W - Math.abs(dx);
+  if (overlap > 0) {
+    const dir = Math.sign(dx) || 1;
+    a.x -= dir * overlap / 2; b.x += dir * overlap / 2;
+  }
+}
+
+function updateHud(dt) {
+  for (const s of ['P1', 'P2']) {
+    const f = fighters[s];
+    f.chip = Math.max(f.hp, f.chip - 25 * dt);
+    $('fill' + s).style.width = f.hp + '%';
+    $('chip' + s).style.width = f.chip + '%';
+  }
+}
+
+const clock = new THREE.Clock();
+function loop() {
+  requestAnimationFrame(loop);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const time = clock.elapsedTime;
+
+  if (fighters) {
+    const { P1, P2 } = fighters;
+    if (phase === 'intro') {
+      phaseTimer -= dt;
+      if (phaseTimer <= 0) { phase = 'fight'; banner(null); }
+    }
+    if (phase === 'fight' || phase === 'over') {
+      P1.update(dt, P2); P2.update(dt, P1);
+      separate(P1, P2);
+      P1.x = Math.max(-ARENA, Math.min(ARENA, P1.x));
+      P2.x = Math.max(-ARENA, Math.min(ARENA, P2.x));
+      if (phase === 'fight') { resolveHits(P1, P2); if (phase === 'fight') resolveHits(P2, P1); }
+    }
+    if (phase === 'over') {
+      phaseTimer -= dt;
+      if (phaseTimer <= 0) { phase = 'idle'; socket.emit('host:reset'); }
+    }
+    P1.render(time, dt); P2.render(time, dt);
+    updateHud(dt);
+  }
+
+  // hafif kamera sarsıntısı (kamera açısı sabit kalır)
+  shake = Math.max(0, shake - dt);
+  camera.position.set(
+    CAM_BASE.x + (shake ? (Math.random() - .5) * shake : 0),
+    CAM_BASE.y + (shake ? (Math.random() - .5) * shake : 0),
+    CAM_BASE.z
+  );
+
+  renderer.render(scene, camera);
+}
+loop();
+</script>
+</body>
+</html>
