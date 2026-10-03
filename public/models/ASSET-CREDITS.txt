@@ -1,0 +1,5 @@
+RPG Character Pack by Quaternius
+Included models: monk.gltf, warrior.gltf
+License: CC0 1.0 Universal
+Source: https://quaternius.com/packs/rpgcharacters.html
+License text: https://creativecommons.org/publicdomain/zero/1.0/
