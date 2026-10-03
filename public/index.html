@@ -141,6 +141,7 @@ function unlockAudio() {
     master = AC.createGain(); master.gain.value = .5; master.connect(AC.destination);
   } catch (e) { return; }
   $('soundHint').style.display = 'none';
+  loadSounds();
 }
 ['pointerdown', 'keydown'].forEach((ev) => addEventListener(ev, unlockAudio));
 function tone(freq, dur, type, vol, slide, delay) {
@@ -173,7 +174,37 @@ const SFX = {
   ice:    () => { tone(1500, .5, 'sine', .2, 600); tone(2200, .4, 'triangle', .12, -500, .05); swish(.3, 5000, 2500, .15); },
   fight:  () => tone(220, .5, 'sawtooth', .25, -60),
 };
-function sfx(name, arg) { if (AC) SFX[name](arg); }
+const BUF = {}, ALIAS = { r1: 'gong', r2: 'gong', r3: 'gong', strong: 'hit', kickhit: 'hit', finish: 'ko' };
+const VOL = { r1: .9, r2: .9, r3: .8, finish: .9, hit: .8, strong: .9, kickhit: .8, block: .7, fire: .7, ice: .7, hurt: .9 };
+const FILES = { music: 'music', r1: 'round1', r2: 'round2', r3: 'round3', finish: 'finish', hit: 'hit', strong: 'strong',
+                kickhit: 'kickhit', block: 'block', fire: 'fire', ice: 'ice', hurt: 'hurt' };
+// public/sounds/ içindeki dosyaları yükler; bir dosya yoksa o ses için üretilen ses kullanılır
+function loadSounds() {
+  for (const k of Object.keys(FILES)) {
+    fetch('/sounds/' + FILES[k] + '.mp3')
+      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject()))
+      .then((b) => AC.decodeAudioData(b))
+      .then((d) => { BUF[k] = d; if (k === 'music' && fighters && !musicSrc) startMusic(); })
+      .catch(() => {});
+  }
+}
+function playBuf(name, vol, loop) {
+  const b = BUF[name]; if (!b || !AC) return null;
+  const s = AC.createBufferSource(), g = AC.createGain();
+  s.buffer = b; s.loop = !!loop; g.gain.value = vol; s.connect(g); g.connect(master); s.start();
+  return s;
+}
+let musicSrc = null, lastHurt = -1;
+function startMusic() { stopMusic(); musicSrc = playBuf('music', .2, true); }
+function stopMusic() { if (musicSrc) { try { musicSrc.stop(); } catch (e) {} musicSrc = null; } }
+function sfx(name, arg) {
+  if (!AC) return;
+  if (name === 'hit' || name === 'strong' || name === 'kickhit') {      // vurulan oyuncu "ough" der
+    if (AC.currentTime - lastHurt > .5) { lastHurt = AC.currentTime; playBuf('hurt', VOL.hurt); }
+  }
+  if (BUF[name]) playBuf(name, VOL[name] || .8);
+  else { const f = SFX[name] || SFX[ALIAS[name]]; if (f) f(arg); }
+}
 
 const CHARS = {
   flame: { name: 'Flame Warrior', color: 0xa3382c, power: 'fire' },
@@ -239,6 +270,10 @@ const ATTACKS = {
   jpunch:   { start: .06, end: .30, total: .45, dmg: 7,  reach: 1.0,  y0: 1.2,  y1: 2.0,  push: 5 },
   jkick:    { start: .06, end: .32, total: .45, dmg: 9,  reach: 1.2,  y0: .2,   y1: 1.1,  push: 6 },
   cast:     { start: .22, end: .30, total: .55, dmg: 0,  reach: 0,    y0: 0,    y1: 0,    push: 0 },
+  // Kombo adımları
+  punch2:    { start: .08, end: .18, total: .32, dmg: 7,  reach: 1.0, y0: 1.45, y1: 2.05, push: 5, lunge: 2.5 },
+  chainkick: { start: .14, end: .30, total: .55, dmg: 11, reach: 1.4, y0: .6,   y1: 1.7,  push: 8, knock: true, launch: 4, lunge: 3 },
+  dashkick:  { start: .14, end: .32, total: .60, dmg: 11, reach: 1.5, y0: .6,   y1: 1.5,  push: 8, lunge: 7 },
 };
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -339,6 +374,9 @@ const POSE = {
   jpunch:   P(-14, 1.10, 92, 6, 10, 120, 70, -80, -5, -50),
   jkick:    P(16, 1.10, 20, 60, -30, 60, 95, -6, -10, -60),
   cast:     P(-8, 1.0, 90, 10, 85, 15, 20, -30, -16, -24),
+  punch2:   P(-14, 1.02, 20, 120, 92, 6, 24, -30, -22, -14),
+  chainkick: P(18, 1.02, 30, 70, -20, 60, 100, -8, -6, -12),
+  dashkick: P(20, 1.02, 30, 70, -20, 60, 100, -8, -6, -12),
 };
 const SKIN = 0xb08f76;
 
@@ -352,7 +390,7 @@ class Fighter {
     this.keys = { left: false, right: false, jump: false, crouch: false, block: false };
     this.attack = null; this.stun = 0; this.down = 0; this.fall = 0;
     this.crouching = false; this.blocking = false; this.ko = false;
-    this.moving = 0; this.ph = 0; this.jumpReady = true; this.charge = 0; this.frozen = false;
+    this.moving = 0; this.ph = 0; this.jumpReady = true; this.charge = 0; this.frozen = false; this.juggle = false; this.juggleHits = 0; this.queued = null;
     this.cur = POSE.guard.slice();
 
     const col = new THREE.Color(this.char.color);
@@ -414,14 +452,23 @@ class Fighter {
     );
   }
 
-  // Vuruş türü duruma göre seçilir: havada / eğilmişken (özel) / normal
+  // Vuruş sırası: saldırı sürerken basılan tuş sıraya alınır, saldırının vurma anından sonra kombo devam eder
   startAttack(kind) {
-    if (this.ko || this.down > 0 || this.attack || this.stun > 0 || this.blocking) return;
+    if (this.ko || this.down > 0 || this.stun > 0 || this.blocking) return;
+    if (this.attack) { if (this.attack.type !== 'cast') this.queued = kind; return; }
+    this.launch(kind, null);
+  }
+
+  launch(kind, prev) {
+    this.queued = null;
+    const fwd = this.facing > 0 ? this.keys.right : this.keys.left;
     let type = kind;
     if (this.y > 0.05) type = kind === 'punch' ? 'jpunch' : 'jkick';
     else if (this.keys.crouch) type = kind === 'punch' ? 'uppercut' : 'sweep';
+    else if (prev && prev.hit && prev.type === 'punch' && kind === 'punch') type = 'punch2';      // yumruk, yumruk
+    else if (prev && prev.hit && prev.type === 'punch2' && kind === 'kick') type = 'chainkick';   // ... tekme (düşürür)
+    else if (kind === 'kick' && fwd) type = 'dashkick';                                          // ileri + tekme
     this.attack = { type, t: 0, hit: false };
-    sfx('whoosh');
   }
 
   // Karaktere özel yetenek (10 sn'de dolar): Flame = ateş topu, Ice = buz oku (rakibi dondurur)
@@ -447,9 +494,11 @@ class Fighter {
     this.hp = Math.max(0, this.hp - dmg);
     this.stun = guarded ? .12 : (a.stun || .28);
     if (a.freeze && !guarded) this.frozen = true;
+    this.queued = null;
     this.attack = null;
     this.kx = from.facing * a.push * (guarded ? .5 : 1);
-    if (a.knock && !guarded) { this.down = .9; this.vy = a.launch; }
+    if (this.down > 0 && this.juggle) { this.juggleHits++; this.vy = Math.max(this.vy, 5); this.down = .9; }   // havadaki rakibe kombo
+    else if (a.knock && !guarded) { this.down = .9; this.vy = a.launch; if (a.launch >= 9) { this.juggle = true; this.juggleHits = 0; } }
     return guarded;
   }
 
@@ -476,6 +525,10 @@ class Fighter {
       if (!k.jump) this.jumpReady = true;
     }
 
+    if (this.attack && this.queued && this.attack.type !== 'cast' && this.attack.t >= ATTACKS[this.attack.type].end) {
+      const q = this.queued, prev = this.attack;
+      this.attack = null; this.launch(q, prev);
+    }
     if (this.attack) {
       const a = ATTACKS[this.attack.type];
       this.attack.t += dt;
@@ -485,12 +538,12 @@ class Fighter {
         sfx(this.char.power);
       }
       if (g && this.attack.t > a.start && this.attack.t < a.end) this.x += this.facing * (a.lunge || 0) * dt;
-      if (this.attack.t >= a.total) this.attack = null;
+      if (this.attack.t >= a.total) { this.attack = null; this.queued = null; }
     }
 
     this.vy -= GRAVITY * dt;
     this.y += this.vy * dt;
-    if (this.y <= 0) { this.y = 0; if (this.vy < 0) this.vy = 0; }
+    if (this.y <= 0) { this.y = 0; if (this.vy < 0) this.vy = 0; this.juggle = false; }
     this.x += this.kx * dt;
     this.kx *= Math.pow(.001, dt);
     this.x = Math.max(-ARENA, Math.min(ARENA, this.x));
@@ -567,6 +620,7 @@ function startGame(players) {
   stopGame();
   matchPlayers = players; wins = { P1: 0, P2: 0 }; round = 1; matchEnd = false;
   $('hud').style.display = 'grid';
+  startMusic();
   startRound();
 }
 function startRound() {
@@ -580,8 +634,8 @@ function startRound() {
   $('nameP2').textContent = 'P2 · ' + fighters.P2.char.name;
   $('roundLabel').textContent = 'RAUND ' + round + '/' + MAX_ROUNDS;
   drawPips();
-  phase = 'intro'; phaseTimer = 2; fightShown = false;
-  banner('RAUND ' + round + '<small>Hazırlan</small>'); sfx('gong');
+  phase = 'intro'; phaseTimer = 3.2; fightShown = false;
+  banner('RAUND ' + round + '<small>Hazırlan</small>'); sfx('r' + Math.min(round, 3));
 }
 function nextRound() {
   if (round < MAX_ROUNDS) { round++; startRound(); }
@@ -589,13 +643,13 @@ function nextRound() {
     matchEnd = true; phaseTimer = 5;
     const w = wins.P1 > wins.P2 ? fighters.P1 : fighters.P2;
     banner('<span style="color:#b08d43">' + w.slot + ' MAÇI KAZANDI</span><small>' + w.char.name + ' · ' + wins.P1 + ' – ' + wins.P2 + '</small>');
-    sfx('gong');
+    sfx('r3');
   } else { phase = 'idle'; socket.emit('host:reset'); }
 }
 
 function stopGame() {
   if (fighters) for (const f of Object.values(fighters)) scene.remove(f.group);
-  fighters = null; phase = 'idle'; clearProjectiles();
+  fighters = null; phase = 'idle'; clearProjectiles(); stopMusic();
   $('hud').style.display = 'none';
   banner(null);
 }
@@ -611,13 +665,13 @@ socket.on('input', ({ slot, action, pressed }) => {
 });
 
 function resolveHits(att, def) {
-  if (!att.attack || att.attack.hit || att.ko || def.down > 0) return;
+  if (!att.attack || att.attack.hit || att.ko || (def.down > 0 && !(def.juggle && def.juggleHits < 2))) return;
   const a = ATTACKS[att.attack.type], t = att.attack.t;
   if (t < a.start || t > a.end) return;
   if (att.attackBox().intersectsBox(def.box())) {
     att.attack.hit = true;
     const guarded = def.takeHit(att, a);
-    sfx(guarded ? 'block' : 'hit', !guarded && a.knock);
+    sfx(guarded ? 'block' : a.knock ? 'strong' : /kick|sweep/.test(att.attack.type) ? 'kickhit' : 'hit');
     shake = guarded ? .08 : (a.knock ? .4 : .25);
     if (def.hp <= 0) endRound(att, def);
   }
@@ -628,7 +682,7 @@ function endRound(winner, loser) {
   wins[winner.slot]++; drawPips();
   loser.ko = true; loser.down = 1; loser.kx = winner.facing * 6;
   winner.keys = { left: false, right: false, jump: false, crouch: false, block: false };
-  sfx('ko');
+  sfx(round === MAX_ROUNDS ? 'finish' : 'ko');
   banner('<span style="color:#a3382c">K.O.</span><small>' + winner.slot + ' · ' + winner.char.name + ' raundu aldı</small>');
 }
 
@@ -701,7 +755,7 @@ function loop() {
     const { P1, P2 } = fighters;
     if (phase === 'intro') {
       phaseTimer -= dt;
-      if (phaseTimer <= .9 && !fightShown) { fightShown = true; banner('DÖVÜŞ!'); sfx('fight'); }
+      if (phaseTimer <= .9 && !fightShown) { fightShown = true; banner('DÖVÜŞ!'); }
       if (phaseTimer <= 0) { phase = 'fight'; banner(null); }
     }
     if (phase === 'fight' || phase === 'over') {
