@@ -61,6 +61,18 @@
     text-shadow: 0 .5vw 0 rgba(0,0,0,.6);
   }
   #banner small { display: block; font-family: var(--body); font-weight: 700; font-size: 2.6vw; opacity: .8; margin-top: 1vh; }
+  #comboNotice {
+    position: fixed; left: 50%; bottom: 13vh; z-index: 5; transform: translateX(-50%);
+    padding: .7rem 1.2rem; background: rgba(20,17,15,.88); border-bottom: 3px solid var(--gold);
+    color: var(--bone); font-family: var(--display); font-weight: 800; font-size: clamp(16px, 2.2vw, 30px);
+    opacity: 0; pointer-events: none; white-space: nowrap; text-align: center;
+  }
+  #comboNotice.show { animation: combo-pop 1.35s ease-out forwards; }
+  @keyframes combo-pop {
+    0% { opacity: 0; translate: 0 12px; }
+    12%, 72% { opacity: 1; translate: 0 0; }
+    100% { opacity: 0; translate: 0 -8px; }
+  }
   #closed {
     position: fixed; inset: 0; z-index: 20; display: none; place-items: center;
     background: rgba(20,17,15,.92); font-family: var(--display); font-weight: 800; font-size: 3vw; text-align: center;
@@ -116,6 +128,7 @@
   </div>
 </div>
 <div id="banner"></div>
+<div id="comboNotice"></div>
 <div id="closed">Bağlantı koptu.<br>Sayfayı yenile.</div>
 
 <script src="/socket.io/socket.io.js"></script>
@@ -277,6 +290,24 @@ const ATTACKS = {
   dashkick:  { start: .14, end: .32, total: .60, dmg: 11, reach: 1.5, y0: .6,   y1: 1.5,  push: 8, lunge: 7 },
 };
 
+const COMBOS = Object.fromEntries([
+  ['PPP', 'Üçlü Yıkım', 15, 6, 0], ['PPK', 'Kızıl Bitiriş', 17, 7, 5],
+  ['PKPPP', 'Alev Serisi', 21, 7, 0], ['PKPPK', 'Kıran Zincir', 22, 8, 5],
+  ['PKPKP', 'Şimşek Yumrukları', 20, 7, 0], ['PKPKK', 'Dönen Balyoz', 23, 9, 6],
+  ['PKKPP', 'Aslan Pençesi', 21, 8, 0], ['PKKPK', 'Kırmızı Kasırga', 24, 9, 7],
+  ['PKKKP', 'Demir Fırtına', 22, 8, 5], ['PKKKK', 'Yıkım Tekmeleri', 25, 10, 7],
+  ['KPPPP', 'Hızlı Raunt', 20, 7, 0], ['KPPPK', 'Kırık Gard', 22, 8, 5],
+  ['KPPKP', 'Çapraz Darbe', 21, 7, 0], ['KPPKK', 'Kasırga Tekmesi', 24, 9, 6],
+  ['KPKPP', 'Gölge Yumrukları', 20, 7, 0], ['KPKPK', 'Çelik Kombosu', 23, 8, 5],
+  ['KPKKP', 'Çifte Fırtına', 22, 8, 5], ['KPKKK', 'Son Darbe', 25, 10, 7],
+  ['KKPPP', 'Kartal İnişi', 21, 8, 5], ['KKPPK', 'Yerden Kes', 22, 9, 6],
+  ['KKPKP', 'Gök Gürültüsü', 20, 7, 0], ['KKPKK', 'Altın Tekme', 24, 9, 6],
+  ['KKKPP', 'Taş Kıran', 21, 8, 0], ['KKKPK', 'Arena Ezicisi', 24, 9, 6],
+  ['KKKKP', 'Son Yumruk', 22, 8, 5], ['KKKKK', 'Beşli Cezalandırma', 26, 11, 8],
+].map(([sequence, name, damage, push, launch]) => [sequence, {
+  name, dmg: damage, push, knock: launch > 0, launch,
+}]));
+
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
@@ -391,7 +422,8 @@ class Fighter {
     this.keys = { left: false, right: false, jump: false, crouch: false, block: false };
     this.attack = null; this.stun = 0; this.down = 0; this.fall = 0;
     this.crouching = false; this.blocking = false; this.ko = false;
-    this.moving = 0; this.ph = 0; this.jumpReady = true; this.charge = 0; this.frozen = false; this.juggle = false; this.juggleHits = 0; this.queued = null;
+    this.moving = 0; this.ph = 0; this.jumpReady = true; this.charge = 0; this.frozen = false; this.juggle = false; this.juggleHits = 0;
+    this.queued = []; this.comboHistory = []; this.comboTimer = 0;
     this.cur = POSE.guard.slice();
 
     const col = new THREE.Color(this.char.color);
@@ -456,12 +488,27 @@ class Fighter {
   // Vuruş sırası: saldırı sürerken basılan tuş sıraya alınır, saldırının vurma anından sonra kombo devam eder
   startAttack(kind) {
     if (this.ko || this.down > 0 || this.stun > 0 || this.blocking) return;
-    if (this.attack) { if (this.attack.type !== 'cast') this.queued = kind; return; }
+    if (this.attack) {
+      if (this.attack.type !== 'cast' && this.queued.length < 8) this.queued.push(kind);
+      return;
+    }
     this.launch(kind, null);
   }
 
   launch(kind, prev) {
-    this.queued = null;
+    if (this.comboTimer <= 0) this.comboHistory.length = 0;
+    this.comboHistory.push(kind === 'punch' ? 'P' : 'K');
+    if (this.comboHistory.length > 5) this.comboHistory.shift();
+    this.comboTimer = 1.4;
+    const combo = COMBOS[this.comboHistory.join('')] || null;
+    if (combo) {
+      this.comboHistory.length = 0;
+      const notice = $('comboNotice');
+      notice.textContent = this.slot + ' · ' + combo.name;
+      notice.classList.remove('show');
+      void notice.offsetWidth;
+      notice.classList.add('show');
+    }
     const fwd = this.facing > 0 ? this.keys.right : this.keys.left;
     let type = kind;
     if (this.y > 0.05) type = kind === 'punch' ? 'jpunch' : 'jkick';
@@ -469,7 +516,7 @@ class Fighter {
     else if (prev && prev.hit && prev.type === 'punch' && kind === 'punch') type = 'punch2';      // yumruk, yumruk
     else if (prev && prev.hit && prev.type === 'punch2' && kind === 'kick') type = 'chainkick';   // ... tekme (düşürür)
     else if (kind === 'kick' && fwd) type = 'dashkick';                                          // ileri + tekme
-    this.attack = { type, t: 0, hit: false };
+    this.attack = { type, t: 0, hit: false, combo };
   }
 
   // Karaktere özel yetenek (10 sn'de dolar): Flame = ateş topu, Ice = buz oku (rakibi dondurur)
@@ -495,7 +542,8 @@ class Fighter {
     this.hp = Math.max(0, this.hp - dmg);
     this.stun = guarded ? .12 : (a.stun || .28);
     if (a.freeze && !guarded) this.frozen = true;
-    this.queued = null;
+    this.queued.length = 0;
+    this.comboHistory.length = 0;
     this.attack = null;
     this.kx = from.facing * a.push * (guarded ? .5 : 1);
     if (this.down > 0 && this.juggle) { this.juggleHits++; this.vy = Math.max(this.vy, 5); this.down = .9; }   // havadaki rakibe kombo
@@ -506,6 +554,8 @@ class Fighter {
   update(dt, foe) {
     const k = this.keys, g = this.y <= 0;
     this.charge = Math.min(1, this.charge + dt / SPECIAL_CD);
+    this.comboTimer = Math.max(0, this.comboTimer - dt);
+    if (this.comboTimer === 0) this.comboHistory.length = 0;
     if (this.down > 0) {                              // yerde: kontrol yok, dokunulmaz
       this.attack = null; this.stun = 0; this.blocking = this.crouching = false; this.moving = 0;
       if (!this.ko && g) this.down -= dt;
@@ -526,8 +576,8 @@ class Fighter {
       if (!k.jump) this.jumpReady = true;
     }
 
-    if (this.attack && this.queued && this.attack.type !== 'cast' && this.attack.t >= ATTACKS[this.attack.type].end) {
-      const q = this.queued, prev = this.attack;
+    if (this.attack && this.queued.length && this.attack.type !== 'cast' && this.attack.t >= ATTACKS[this.attack.type].end) {
+      const q = this.queued.shift(), prev = this.attack;
       this.attack = null; this.launch(q, prev);
     }
     if (this.attack) {
@@ -539,7 +589,7 @@ class Fighter {
         sfx(this.char.power);
       }
       if (g && this.attack.t > a.start && this.attack.t < a.end) this.x += this.facing * (a.lunge || 0) * dt;
-      if (this.attack.t >= a.total) { this.attack = null; this.queued = null; }
+      if (this.attack.t >= a.total) { this.attack = null; this.queued.length = 0; }
     }
 
     this.vy -= GRAVITY * dt;
@@ -667,7 +717,7 @@ socket.on('input', ({ slot, action, pressed }) => {
 
 function resolveHits(att, def) {
   if (!att.attack || att.attack.hit || att.ko || (def.down > 0 && !(def.juggle && def.juggleHits < 2))) return;
-  const a = ATTACKS[att.attack.type], t = att.attack.t;
+  const a = { ...ATTACKS[att.attack.type], ...(att.attack.combo || {}) }, t = att.attack.t;
   if (t < a.start || t > a.end) return;
   if (att.attackBox().intersectsBox(def.box())) {
     att.attack.hit = true;
