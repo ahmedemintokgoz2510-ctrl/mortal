@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Dövüş Arenası — Kumanda</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&family=Barlow+Condensed:wght@500;700&display=swap">
+<style>
+  :root {
+    --ink: #14110f; --ash: #2a2623; --ash2: #3a342f; --bone: #d8cfbf;
+    --ember: #a3382c; --frost: #4f6f86; --gold: #b08d43;
+    --display: 'Cinzel', 'Times New Roman', serif;
+    --body: 'Barlow Condensed', 'Arial Narrow', sans-serif;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden; background: var(--ink); color: var(--bone);
+    font-family: var(--body); font-weight: 500; touch-action: none; overscroll-behavior: none;
+  }
+  .screen { position: fixed; inset: 0; display: none; padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+  .screen.show { display: flex; }
+
+  /* ---------- Mesaj ekranı ---------- */
+  #msg { align-items: center; justify-content: center; text-align: center; font-size: 26px; line-height: 1.2; }
+
+  /* ---------- Karakter seçimi ---------- */
+  #select { flex-direction: column; gap: 14px; }
+  #select h2 { font-family: var(--display); font-weight: 800; font-size: 26px; margin: 0; }
+  #select .who { font-size: 20px; opacity: .8; margin-top: -8px; }
+  .chars { flex: 1; display: grid; gap: 14px; grid-template-rows: 1fr 1fr; min-height: 0; }
+  .char {
+    background: var(--ash); border: 4px solid transparent; border-left-width: 14px; padding: 12px 18px;
+    display: flex; flex-direction: column; justify-content: center; text-align: left; color: inherit; font: inherit;
+  }
+  .char b { font-family: var(--display); font-weight: 800; font-size: 26px; letter-spacing: .04em; }
+  .char span { font-size: 21px; opacity: .85; }
+  .char[data-char="flame"] { border-left-color: var(--ember); }
+  .char[data-char="ice"] { border-left-color: var(--frost); }
+  .char.sel[data-char="flame"] { border-color: var(--ember); background: #3a2622; }
+  .char.sel[data-char="ice"] { border-color: var(--frost); background: #24303a; }
+  #readyBtn {
+    font-family: var(--display); font-weight: 800; font-size: 22px; letter-spacing: .1em; padding: 16px;
+    background: var(--gold); color: var(--ink); border: 0; border-radius: 0;
+  }
+  #readyBtn:disabled { background: var(--ash2); color: #7d746a; }
+
+  /* ---------- Gamepad ---------- */
+  #pad { padding: 0; }
+  #pad .badge {
+    position: absolute; top: max(8px, env(safe-area-inset-top)); left: 0; right: 0; text-align: center;
+    font-family: var(--display); font-weight: 800; font-size: 15px; letter-spacing: .08em; opacity: .7; pointer-events: none;
+  }
+  .cluster { position: absolute; bottom: max(14px, env(safe-area-inset-bottom)); display: grid; gap: 10px; --b: min(25vh, 20vw); }
+  #moves { left: max(18px, env(safe-area-inset-left)); grid-template-columns: repeat(3, var(--b)); grid-template-rows: repeat(2, var(--b)); }
+  #moves [data-act="jump"] { grid-column: 2; grid-row: 1; }
+  #moves [data-act="left"] { grid-column: 1; grid-row: 2; }
+  #moves [data-act="crouch"] { grid-column: 2; grid-row: 2; }
+  #moves [data-act="right"] { grid-column: 3; grid-row: 2; }
+  #actions { right: max(18px, env(safe-area-inset-right)); grid-template-columns: repeat(2, calc(var(--b) * 1.15)); grid-template-rows: repeat(2, var(--b)); }
+  #actions [data-act="block"] { grid-column: 1 / 3; }
+
+  .btn {
+    font-family: var(--display); font-weight: 800; font-size: clamp(12px, 3.3vh, 18px); letter-spacing: .04em;
+    color: var(--bone); background: var(--ash); border: 3px solid var(--ash2); border-radius: 18px;
+    touch-action: none; padding: 0; transition: transform .04s;
+  }
+  .btn.on { transform: scale(.94); background: var(--bone); color: var(--ink); border-color: var(--bone); }
+  .btn.punch { background: #3d2320; border-color: var(--ember); }
+  .btn.kick  { background: #3a3120; border-color: var(--gold); }
+  .btn.block { background: #26323a; border-color: var(--frost); }
+  .btn.punch.on { background: var(--ember); color: var(--bone); }
+  .btn.kick.on  { background: var(--gold); color: var(--ink); }
+  .btn.block.on { background: var(--frost); color: var(--ink); }
+
+  /* Dikey tutulursa uyar */
+  #rotate { position: fixed; inset: 0; z-index: 50; display: none; align-items: center; justify-content: center; text-align: center; background: var(--ink); font-family: var(--display); font-weight: 800; font-size: 22px; padding: 24px; }
+  @media (orientation: portrait) { body.playing #rotate { display: flex; } }
+</style>
+</head>
+<body>
+
+<div class="screen show" id="msg">Bağlanıyor…</div>
+
+<!-- Karakter seçimi -->
+<div class="screen" id="select">
+  <h2 id="selTitle">Karakterini seç</h2>
+  <div class="who" id="selWho"></div>
+  <div class="chars">
+    <button class="char" data-char="flame"><b>Flame Warrior</b><span>Ateşin öfkesiyle vuran savaşçı</span></button>
+    <button class="char" data-char="ice"><b>Ice Ninja</b><span>Sessiz ve soğukkanlı gölge</span></button>
+  </div>
+  <button id="readyBtn" disabled>HAZIR</button>
+</div>
+
+<!-- Sanal gamepad -->
+<div class="screen" id="pad">
+  <div class="badge" id="badge"></div>
+  <div class="cluster" id="moves">
+    <button class="btn" data-act="jump">ZIPLA</button>
+    <button class="btn" data-act="left">SOL</button>
+    <button class="btn" data-act="crouch">EĞİL</button>
+    <button class="btn" data-act="right">SAĞ</button>
+  </div>
+  <div class="cluster" id="actions">
+    <button class="btn punch" data-act="punch">YUMRUK</button>
+    <button class="btn kick" data-act="kick">TEKME</button>
+    <button class="btn block" data-act="block">BLOK</button>
+  </div>
+</div>
+
+<div id="rotate">Telefonu yatay çevir</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const CHAR_NAMES = { flame: 'Flame Warrior', ice: 'Ice Ninja' };
+  const code = (new URLSearchParams(location.search).get('room') || '').toUpperCase();
+
+  const socket = io();
+  let slot = null, chosen = null, ready = false;
+
+  function show(id, text) {
+    for (const s of document.querySelectorAll('.screen')) s.classList.remove('show');
+    $(id).classList.add('show');
+    if (id === 'msg') $('msg').textContent = text || '';
+    document.body.classList.toggle('playing', id === 'pad');
+  }
+
+  /* ---------- Bağlantı ---------- */
+  socket.on('connect', () => {
+    if (!code) return show('msg', 'Oda kodu yok. Tahtadaki QR kodu tara.');
+    socket.emit('controller:join', { code });
+  });
+  socket.on('disconnect', () => { releaseAll(); show('msg', 'Bağlantı koptu. Yeniden bağlanıyor…'); });
+  socket.on('join:error', (m) => show('msg', m));
+  socket.on('room:closed', () => { releaseAll(); show('msg', 'Tahta bağlantısı kapandı. QR kodu yeniden tara.'); });
+
+  socket.on('controller:joined', (info) => {
+    slot = info.slot;
+    resetSelect();
+    show('select');
+  });
+
+  /* ---------- Karakter seçimi ---------- */
+  function resetSelect() {
+    chosen = null; ready = false;
+    $('selWho').textContent = 'Sen ' + slot + ' oyuncususun';
+    $('selTitle').textContent = 'Karakterini seç';
+    $('readyBtn').disabled = true;
+    $('readyBtn').textContent = 'HAZIR';
+    document.querySelectorAll('.char').forEach((c) => { c.classList.remove('sel'); c.disabled = false; });
+  }
+
+  document.querySelectorAll('.char').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (ready) return;
+      chosen = btn.dataset.char;
+      document.querySelectorAll('.char').forEach((c) => c.classList.toggle('sel', c === btn));
+      $('readyBtn').disabled = false;
+      socket.emit('player:select', { character: chosen });
+    });
+  });
+
+  $('readyBtn').addEventListener('click', () => {
+    if (!chosen || ready) return;
+    ready = true;
+    $('readyBtn').disabled = true;
+    $('readyBtn').textContent = 'RAKİP BEKLENİYOR…';
+    $('selTitle').textContent = CHAR_NAMES[chosen] + ' hazır';
+    document.querySelectorAll('.char').forEach((c) => (c.disabled = true));
+    socket.emit('player:ready');
+  });
+
+  /* ---------- Oyun başladı / bitti ---------- */
+  socket.on('game:start', ({ players }) => {
+    const mine = players[slot];
+    $('badge').textContent = slot + ' · ' + CHAR_NAMES[mine.character];
+    show('pad');
+    if (navigator.vibrate) navigator.vibrate(60);
+    // Tam ekran ve ekran uyanık kalsın (desteklenen tarayıcılarda)
+    try { navigator.wakeLock && navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {}
+  });
+
+  socket.on('lobby:reset', () => {
+    releaseAll();
+    if (slot) { resetSelect(); show('select'); }
+  });
+
+  /* ---------- Dokunmatik butonlar ---------- */
+  const pressed = new Set();
+
+  function send(action, down) {
+    socket.emit('player:input', { action, pressed: down });
+  }
+
+  function releaseAll() {
+    document.querySelectorAll('[data-act]').forEach((b) => {
+      const a = b.dataset.act;
+      if (pressed.has(a)) { pressed.delete(a); b.classList.remove('on'); send(a, false); }
+    });
+  }
+
+  document.querySelectorAll('[data-act]').forEach((btn) => {
+    const act = btn.dataset.act;
+
+    const down = (e) => {
+      e.preventDefault();
+      if (pressed.has(act)) return;
+      pressed.add(act);
+      btn.classList.add('on');
+      send(act, true);
+      if (navigator.vibrate) navigator.vibrate(12);
+    };
+    const up = (e) => {
+      e.preventDefault();
+      if (!pressed.has(act)) return;
+      pressed.delete(act);
+      btn.classList.remove('on');
+      send(act, false);
+    };
+
+    // Pointer Events: çoklu dokunuş destekler, 300ms gecikme yok
+    btn.addEventListener('pointerdown', down);
+    btn.addEventListener('pointerup', up);
+    btn.addEventListener('pointercancel', up);
+    btn.addEventListener('lostpointercapture', up);
+    btn.addEventListener('contextmenu', (e) => e.preventDefault());
+  });
+
+  // Sayfa gizlenirse basılı tuşları bırak
+  document.addEventListener('visibilitychange', () => { if (document.hidden) releaseAll(); });
+  window.addEventListener('blur', releaseAll);
+
+  // Çift dokunma / sıkıştırma ile yakınlaştırmayı engelle
+  document.addEventListener('gesturestart', (e) => e.preventDefault());
+  document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+})();
+</script>
+</body>
+</html>
