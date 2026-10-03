@@ -20,9 +20,9 @@
 
   /* ---------- LOBİ ---------- */
   #lobby {
-    position: fixed; inset: 0; z-index: 10; background: var(--ink);
-    display: grid; grid-template-columns: 1fr 1fr; gap: 5vw; align-items: center;
-    padding: 6vh 6vw;
+    position: fixed; inset: 0; z-index: 10; background: var(--ink); overflow-y: auto;
+    display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: minmax(0, 1fr) auto;
+    gap: 2vh 5vw; align-items: center; padding: 4vh 6vw;
   }
   #lobby h1 { font-family: var(--display); font-weight: 800; font-size: 5.2vw; line-height: 1.05; margin: 0 0 2vh; letter-spacing: .04em; }
   #lobby p.lead { font-size: 2.2vw; margin: 0 0 4vh; max-width: 30ch; line-height: 1.2; }
@@ -40,6 +40,31 @@
   .slot.flame { border-color: var(--ember); }
   .slot.ice { border-color: var(--frost); }
   .slot.ready .state { color: var(--gold); opacity: 1; font-weight: 700; }
+  .combo-launcher {
+    grid-column: 1 / -1; justify-self: center; width: clamp(128px, 16vw, 176px); aspect-ratio: 1;
+    display: grid; align-content: center; justify-items: center; gap: .5rem;
+    color: var(--bone); background: var(--ash); border: 2px solid var(--gold); cursor: pointer;
+    font-family: var(--display); font-weight: 800; font-size: 18px;
+  }
+  .combo-launcher span:last-child { color: var(--gold); font: 700 14px var(--body); }
+  .combo-launcher:hover, .combo-launcher:focus-visible { background: #3a3120; outline: 2px solid var(--bone); outline-offset: 3px; }
+  #comboDialog {
+    width: min(92vw, 860px); max-width: none; max-height: 88vh; max-height: 88dvh;
+    padding: 0; overflow: hidden; color: var(--bone); background: var(--ink); border: 1px solid #74613d;
+  }
+  #comboDialog::backdrop { background: rgba(0, 0, 0, .78); }
+  .combo-dialog-inner { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 1rem; max-height: 88vh; max-height: 88dvh; padding: clamp(16px, 3vw, 28px); }
+  .combo-dialog-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+  .combo-dialog-head h2 { margin: 0 0 .4rem; color: var(--gold); font: 800 26px var(--display); }
+  .combo-dialog-head p { margin: 0; opacity: .75; font-size: 14px; }
+  .combo-close { flex: 0 0 auto; padding: .55rem .8rem; color: var(--bone); background: var(--ash); border: 1px solid #574b3b; font: 700 14px var(--body); cursor: pointer; }
+  .combo-close:hover, .combo-close:focus-visible { border-color: var(--gold); outline: 2px solid var(--gold); }
+  #comboList { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: 0 1.5rem; min-height: 0; overflow-y: auto; padding-right: .5rem; }
+  .combo-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: .6rem; min-height: 2.6rem; border-bottom: 1px solid #332d27; font-size: 14px; }
+  .combo-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .combo-sequence { color: var(--bone); font-family: var(--display); white-space: nowrap; }
+  .combo-damage { color: var(--gold); text-align: right; white-space: nowrap; }
+  .combo-damage small { color: var(--bone); opacity: .65; }
 
   /* ---------- HUD ---------- */
   #hud {
@@ -79,10 +104,18 @@
   }
 
   @media (max-aspect-ratio: 1/1) {
-    #lobby { grid-template-columns: 1fr; }
+    #lobby { grid-template-columns: 1fr; grid-template-rows: auto auto auto; align-content: start; align-items: stretch; gap: 2vh; padding: 4vh 6vw; }
     #lobby h1 { font-size: 9vw; } #lobby p.lead { font-size: 4vw; }
     #roomCode { font-size: 8vw; } .slot .who { font-size: 5vw; } .slot .state { font-size: 4vw; }
     #joinUrl { font-size: 2.4vw; max-width: 80vw; }
+    .combo-launcher { grid-column: auto; width: 128px; }
+    #comboDialog { width: 94vw; }
+    .combo-dialog-inner { padding: 16px; }
+    .combo-dialog-head { gap: .5rem; }
+    .combo-dialog-head h2 { font-size: 22px; }
+    .combo-dialog-head p { max-width: 36ch; line-height: 1.35; }
+    #comboList { grid-template-columns: 1fr; }
+    .combo-row { gap: .5rem; font-size: 14px; }
   }
   .sp { height: .9vh; margin-top: .7vh; background: #1a1613; border: 2px solid #4a433c; }
   .sp b { display: block; height: 100%; width: 0; background: #8a7548; }
@@ -111,7 +144,23 @@
     <div class="slot" id="slotP1"><div class="who">P1</div><div class="state">Bekleniyor…</div></div>
     <div class="slot" id="slotP2"><div class="who">P2</div><div class="state">Bekleniyor…</div></div>
   </div>
+  <button class="combo-launcher" id="comboOpen" type="button" aria-haspopup="dialog">
+    <span>KOMBOLAR</span><span>26 HAREKET</span>
+  </button>
 </div>
+
+<dialog id="comboDialog" aria-labelledby="comboTitle">
+  <div class="combo-dialog-inner">
+    <div class="combo-dialog-head">
+      <div>
+        <h2 id="comboTitle">Kombo Rehberi</h2>
+        <p>Y = Yumruk (6) · T = Tekme (10) · Hasar tüm vuruşlar isabet ederse</p>
+      </div>
+      <button class="combo-close" id="comboClose" type="button">Kapat</button>
+    </div>
+    <div id="comboList" aria-live="polite"></div>
+  </div>
+</dialog>
 
 <!-- HUD -->
 <div id="hud">
@@ -307,6 +356,43 @@ const COMBOS = Object.fromEntries([
 ].map(([sequence, name, damage, push, launch]) => [sequence, {
   name, dmg: damage, push, knock: launch > 0, launch,
 }]));
+const COMBO_KEYS = Object.keys(COMBOS);
+
+function comboTotalDamage(sequence, finisherDamage) {
+  let previousType = null, total = 0;
+  for (let i = 0; i < sequence.length; i++) {
+    const kind = sequence[i] === 'P' ? 'punch' : 'kick';
+    let type = kind;
+    if (previousType === 'punch' && kind === 'punch') type = 'punch2';
+    else if (previousType === 'punch2' && kind === 'kick') type = 'chainkick';
+    const prefix = sequence.slice(0, i + 1);
+    const continues = COMBO_KEYS.some((candidate) => candidate.length > prefix.length && candidate.startsWith(prefix));
+    total += i === sequence.length - 1
+      ? finisherDamage
+      : type === 'chainkick' && continues ? ATTACKS.kick.dmg : ATTACKS[type].dmg;
+    previousType = type;
+  }
+  return total;
+}
+
+for (const [sequence, combo] of Object.entries(COMBOS)) {
+  combo.totalDamage = comboTotalDamage(sequence, combo.dmg);
+}
+
+$('comboList').innerHTML = COMBO_KEYS.map((sequence) => {
+  const combo = COMBOS[sequence];
+  const moves = sequence.replace(/P/g, 'Y').replace(/K/g, 'T');
+  return '<div class="combo-row"><span class="combo-name">' + combo.name +
+    '</span><span class="combo-sequence">' + moves.split('').join(' · ') +
+    '</span><span class="combo-damage">' + combo.totalDamage +
+    ' <small>toplam · son ' + combo.dmg + '</small></span></div>';
+}).join('');
+
+$('comboOpen').addEventListener('click', () => $('comboDialog').showModal());
+$('comboClose').addEventListener('click', () => $('comboDialog').close());
+$('comboDialog').addEventListener('click', (event) => {
+  if (event.target === $('comboDialog')) $('comboDialog').close();
+});
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -500,7 +586,9 @@ class Fighter {
     this.comboHistory.push(kind === 'punch' ? 'P' : 'K');
     if (this.comboHistory.length > 5) this.comboHistory.shift();
     this.comboTimer = 1.4;
-    const combo = COMBOS[this.comboHistory.join('')] || null;
+    const sequence = this.comboHistory.join('');
+    const combo = COMBOS[sequence] || null;
+    const continuesCombo = COMBO_KEYS.some((candidate) => candidate.length > sequence.length && candidate.startsWith(sequence));
     if (combo) {
       this.comboHistory.length = 0;
       const notice = $('comboNotice');
@@ -516,7 +604,10 @@ class Fighter {
     else if (prev && prev.hit && prev.type === 'punch' && kind === 'punch') type = 'punch2';      // yumruk, yumruk
     else if (prev && prev.hit && prev.type === 'punch2' && kind === 'kick') type = 'chainkick';   // ... tekme (düşürür)
     else if (kind === 'kick' && fwd) type = 'dashkick';                                          // ileri + tekme
-    this.attack = { type, t: 0, hit: false, combo };
+    const comboStep = !combo && type === 'chainkick' && continuesCombo
+      ? { dmg: ATTACKS.kick.dmg, push: ATTACKS.kick.push, knock: false, launch: 0 }
+      : null;
+    this.attack = { type, t: 0, hit: false, combo, comboStep };
   }
 
   // Karaktere özel yetenek (10 sn'de dolar): Flame = ateş topu, Ice = buz oku (rakibi dondurur)
@@ -717,7 +808,7 @@ socket.on('input', ({ slot, action, pressed }) => {
 
 function resolveHits(att, def) {
   if (!att.attack || att.attack.hit || att.ko || (def.down > 0 && !(def.juggle && def.juggleHits < 2))) return;
-  const a = { ...ATTACKS[att.attack.type], ...(att.attack.combo || {}) }, t = att.attack.t;
+  const a = { ...ATTACKS[att.attack.type], ...(att.attack.comboStep || {}), ...(att.attack.combo || {}) }, t = att.attack.t;
   if (t < a.start || t > a.end) return;
   if (att.attackBox().intersectsBox(def.box())) {
     att.attack.hit = true;
