@@ -181,8 +181,9 @@ const FILES = { music: 'music', r1: 'round1', r2: 'round2', r3: 'round3', finish
 // public/sounds/ içindeki dosyaları yükler; bir dosya yoksa o ses için üretilen ses kullanılır
 function loadSounds() {
   for (const k of Object.keys(FILES)) {
-    fetch('/sounds/' + FILES[k] + '.mp3')
-      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject()))
+    const get = (u) => fetch(u).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject()));
+    // önce public/sounds/, yoksa doğrudan public/ içine bakar
+    get('/sounds/' + FILES[k] + '.mp3').catch(() => get('/' + FILES[k] + '.mp3'))
       .then((b) => AC.decodeAudioData(b))
       .then((d) => { BUF[k] = d; if (k === 'music' && fighters && !musicSrc) startMusic(); })
       .catch(() => {});
