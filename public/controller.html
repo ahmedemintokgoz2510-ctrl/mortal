@@ -100,8 +100,8 @@
   <h2 id="selTitle">Karakterini seç</h2>
   <div class="who" id="selWho"></div>
   <div class="chars">
-    <button class="char" data-char="flame"><b>Flame Warrior</b><span>Ateşin öfkesiyle vuran savaşçı</span></button>
-    <button class="char" data-char="ice"><b>Ice Ninja</b><span>Sessiz ve soğukkanlı gölge</span></button>
+    <button class="char" data-char="flame"><b>Ateş Keşişi</b><span>Alevin gücüyle dövüşen keşiş</span></button>
+    <button class="char" data-char="ice"><b>Buz Şövalyesi</b><span>Buz zırhlı kılıç ustası</span></button>
   </div>
   <button id="readyBtn" disabled>HAZIR</button>
 </div>
@@ -128,7 +128,7 @@
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);
-  const CHAR_NAMES = { flame: 'Flame Warrior', ice: 'Ice Ninja' };
+  const CHAR_NAMES = { flame: 'Ateş Keşişi', ice: 'Buz Şövalyesi' };
   const code = (new URLSearchParams(location.search).get('room') || '').toUpperCase();
 
   const socket = io();

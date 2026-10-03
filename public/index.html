@@ -289,8 +289,8 @@ function sfx(name, arg) {
 }
 
 const CHARS = {
-  flame: { name: 'Flame Warrior', color: 0xa3382c, power: 'fire' },
-  ice:   { name: 'Ice Ninja',     color: 0x4f6f86, mask: true, power: 'ice' },
+  flame: { name: 'Ateş Keşişi', color: 0xa3382c, power: 'fire' },
+  ice:   { name: 'Buz Şövalyesi', color: 0x4f6f86, mask: true, power: 'ice' },
 };
 
 /* =========================================================
@@ -496,8 +496,8 @@ addEventListener('resize', () => {
    DÖVÜŞÇÜ
    ========================================================= */
 const FIGHTER_ANIMATIONS = {
-  flame: { idle: 'Idle', run: 'Run', guard: 'Idle_Attacking', hit: 'RecieveHit', death: 'Death', punch: 'Attack', kick: 'Attack2', cast: 'Attack2' },
-  ice: { idle: 'Idle', run: 'Run', guard: 'Idle_Attacking', hit: 'RecieveHit', death: 'Death', punch: 'Punch', kick: 'Sword_Attack', cast: 'Sword_Attack2' },
+  flame: { idle: 'Idle', run: 'Run', guard: 'Idle_Attacking', hit: 'RecieveHit', death: 'Death', punch: 'Attack', cast: 'Attack2' },
+  ice: { idle: 'Idle', run: 'Run', guard: 'Idle_Attacking', hit: 'RecieveHit', death: 'Death', punch: 'Punch', cast: 'Sword_Attack2' },
 };
 
 class Fighter {
@@ -526,6 +526,14 @@ class Fighter {
     this.currentAction = null;
     this.currentAnimation = null;
     this.materials = [];
+    this.legBones = {
+      L: { upper: this.model.getObjectByName('UpperLegL'), lower: this.model.getObjectByName('LowerLegL') },
+      R: { upper: this.model.getObjectByName('UpperLegR'), lower: this.model.getObjectByName('LowerLegR') },
+    };
+    this.kickAxis = new THREE.Vector3(1, 0, 0);
+    this.kickDeltaUpper = new THREE.Quaternion();
+    this.kickDeltaLower = new THREE.Quaternion();
+    this.kickPose = null;
     this.model.traverse((node) => {
       if (!node.isMesh) return;
       node.castShadow = true;
@@ -570,7 +578,7 @@ class Fighter {
 
   attackAnimation(kind) {
     if (kind === 'cast') return this.animationMap.cast;
-    return /kick|sweep/.test(kind) ? this.animationMap.kick : this.animationMap.punch;
+    return /kick|sweep/.test(kind) ? this.animationMap.guard : this.animationMap.punch;
   }
 
   // Vuruş sırası: saldırı sürerken basılan tuş sıraya alınır, saldırının vurma anından sonra kombo devam eder
@@ -610,7 +618,8 @@ class Fighter {
       ? { dmg: ATTACKS.kick.dmg, push: ATTACKS.kick.push, knock: false, launch: 0 }
       : null;
     this.attack = { type, t: 0, hit: false, combo, comboStep };
-    this.playAnimation(this.attackAnimation(type), false, true);
+    const isKick = /kick|sweep/.test(type);
+    this.playAnimation(this.attackAnimation(type), isKick, true);
   }
 
   // Karaktere özel yetenek (10 sn'de dolar): Flame = ateş topu, Ice = buz oku (rakibi dondurur)
@@ -696,6 +705,11 @@ class Fighter {
   }
 
   render(time, dt) {
+    if (this.kickPose) {
+      this.kickPose.upper.quaternion.multiply(this.kickDeltaUpper.clone().invert());
+      this.kickPose.lower.quaternion.multiply(this.kickDeltaLower.clone().invert());
+      this.kickPose = null;
+    }
     if (this.ko || this.down > 0) this.playAnimation(this.animationMap.death, false);
     else if (this.stun > 0) this.playAnimation(this.animationMap.hit, false);
     else if (!this.attack) {
@@ -705,6 +719,22 @@ class Fighter {
       this.playAnimation(animation);
     }
     this.mixer.update(dt);
+
+    if (this.attack && /kick|sweep/.test(this.attack.type)) {
+      const attack = ATTACKS[this.attack.type];
+      const ramp = Math.min(1, this.attack.t / attack.start);
+      const recovery = this.attack.t <= attack.end ? 1 : Math.max(0, (attack.total - this.attack.t) / (attack.total - attack.end));
+      const power = Math.max(0, Math.min(ramp, recovery));
+      const sweep = this.attack.type === 'sweep';
+      const bones = this.legBones[this.facing > 0 ? 'L' : 'R'];
+      const upperAngle = sweep ? -.45 : -1.25;
+      const lowerAngle = sweep ? -.7 : -.15;
+      this.kickDeltaUpper.setFromAxisAngle(this.kickAxis, upperAngle * power);
+      this.kickDeltaLower.setFromAxisAngle(this.kickAxis, lowerAngle * power);
+      bones.upper.quaternion.multiply(this.kickDeltaUpper);
+      bones.lower.quaternion.multiply(this.kickDeltaLower);
+      this.kickPose = bones;
+    }
 
     this.fall += ((this.down > 0 ? 1 : 0) - this.fall) * (1 - Math.exp(-dt * (this.ko ? 8 : 14)));
     this.tilt.rotation.z = this.fall * 1.5;
