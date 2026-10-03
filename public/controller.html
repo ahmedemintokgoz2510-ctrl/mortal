@@ -79,6 +79,13 @@
   /* Dikey tutulursa uyar */
   #rotate { position: fixed; inset: 0; z-index: 50; display: none; align-items: center; justify-content: center; text-align: center; background: var(--ink); font-family: var(--display); font-weight: 800; font-size: 22px; padding: 24px; }
   @media (orientation: portrait) { body.playing #rotate { display: flex; } }
+
+  #stick { left: max(18px, env(safe-area-inset-left)); display: block; width: min(48vh, 38vw); height: min(48vh, 38vw); border-radius: 50%; background: var(--ash); border: 3px solid var(--ash2); touch-action: none; }
+  #stick i { position: absolute; font-style: normal; font-family: var(--display); font-weight: 800; font-size: 11px; opacity: .45; pointer-events: none; }
+  #stick .u { top: 8%; left: 50%; transform: translateX(-50%); } #stick .d { bottom: 8%; left: 50%; transform: translateX(-50%); }
+  #stick .l { left: 7%; top: 50%; transform: translateY(-50%); } #stick .r { right: 7%; top: 50%; transform: translateY(-50%); }
+  #knob { position: absolute; left: 50%; top: 50%; width: 38%; height: 38%; margin: -19% 0 0 -19%; border-radius: 50%; background: var(--bone); opacity: .85; pointer-events: none; }
+  .hint { position: absolute; top: calc(max(8px, env(safe-area-inset-top)) + 22px); left: 0; right: 0; text-align: center; font-size: 14px; opacity: .5; pointer-events: none; }
 </style>
 </head>
 <body>
@@ -99,11 +106,10 @@
 <!-- Sanal gamepad -->
 <div class="screen" id="pad">
   <div class="badge" id="badge"></div>
-  <div class="cluster" id="moves">
-    <button class="btn" data-act="jump">ZIPLA</button>
-    <button class="btn" data-act="left">SOL</button>
-    <button class="btn" data-act="crouch">EĞİL</button>
-    <button class="btn" data-act="right">SAĞ</button>
+  <div class="hint">Eğil + Yumruk / Tekme = özel vuruş</div>
+  <div class="cluster" id="stick">
+    <i class="u">ZIPLA</i><i class="d">EĞİL</i><i class="l">SOL</i><i class="r">SAĞ</i>
+    <div id="knob"></div>
   </div>
   <div class="cluster" id="actions">
     <button class="btn punch" data-act="punch">YUMRUK</button>
@@ -199,6 +205,7 @@
   }
 
   function releaseAll() {
+    if (typeof stickEnd === "function") stickEnd();
     document.querySelectorAll('[data-act]').forEach((b) => {
       const a = b.dataset.act;
       if (pressed.has(a)) { pressed.delete(a); b.classList.remove('on'); send(a, false); }
@@ -231,6 +238,31 @@
     btn.addEventListener('lostpointercapture', up);
     btn.addEventListener('contextmenu', (e) => e.preventDefault());
   });
+
+  /* ---------- Analog yön tuşu: tek parmakla çapraz (zıpla + sağ/sol, eğil + sağ/sol) ---------- */
+  const stick = $('stick'), knob = $('knob'), dirs = { left: false, right: false, jump: false, crouch: false };
+  let stickId = null;
+  function setDir(a, on) {
+    if (dirs[a] === on) return;
+    dirs[a] = on; send(a, on);
+    if (on && navigator.vibrate) navigator.vibrate(8);
+  }
+  function stickMove(e) {
+    const r = stick.getBoundingClientRect(), R = r.width / 2;
+    const dx = e.clientX - (r.left + R), dy = e.clientY - (r.top + R);
+    const d = Math.hypot(dx, dy) || 1, kk = Math.min(d, R * .6), dz = R * .28;
+    knob.style.transform = 'translate(' + (dx / d * kk) + 'px,' + (dy / d * kk) + 'px)';
+    setDir('left', dx < -dz); setDir('right', dx > dz);
+    setDir('jump', dy < -dz * 1.1); setDir('crouch', dy > dz);
+  }
+  function stickEnd() {
+    stickId = null; knob.style.transform = '';
+    for (const a of Object.keys(dirs)) setDir(a, false);
+  }
+  stick.addEventListener('pointerdown', (e) => { e.preventDefault(); stickId = e.pointerId; stick.setPointerCapture(stickId); stickMove(e); });
+  stick.addEventListener('pointermove', (e) => { if (e.pointerId === stickId) stickMove(e); });
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((ev) =>
+    stick.addEventListener(ev, (e) => { if (e.pointerId === stickId) stickEnd(); }));
 
   // Sayfa gizlenirse basılı tuşları bırak
   document.addEventListener('visibilitychange', () => { if (document.hidden) releaseAll(); });
