@@ -60,7 +60,8 @@
   #moves [data-act="left"] { grid-column: 1; grid-row: 2; }
   #moves [data-act="crouch"] { grid-column: 2; grid-row: 2; }
   #moves [data-act="right"] { grid-column: 3; grid-row: 2; }
-  #actions { right: max(18px, env(safe-area-inset-right)); grid-template-columns: repeat(2, calc(var(--b) * 1.15)); grid-template-rows: repeat(2, var(--b)); }
+  #actions { right: max(18px, env(safe-area-inset-right)); grid-template-columns: repeat(2, calc(var(--b) * 1.15)); grid-template-rows: repeat(3, calc(var(--b) * .78)); }
+  #actions [data-act="special"] { grid-column: 1 / 3; }
   #actions [data-act="block"] { grid-column: 1 / 3; }
 
   .btn {
@@ -86,6 +87,8 @@
   #stick .l { left: 7%; top: 50%; transform: translateY(-50%); } #stick .r { right: 7%; top: 50%; transform: translateY(-50%); }
   #knob { position: absolute; left: 50%; top: 50%; width: 38%; height: 38%; margin: -19% 0 0 -19%; border-radius: 50%; background: var(--bone); opacity: .85; pointer-events: none; }
   .hint { position: absolute; top: calc(max(8px, env(safe-area-inset-top)) + 22px); left: 0; right: 0; text-align: center; font-size: 14px; opacity: .5; pointer-events: none; }
+  .btn.special { --c: 0; border-color: var(--gold); background: linear-gradient(to right, #6e5a2c calc(var(--c) * 100%), var(--ash) calc(var(--c) * 100%)); }
+  .btn.special.ready { background: var(--gold); color: var(--ink); }
 </style>
 </head>
 <body>
@@ -106,12 +109,13 @@
 <!-- Sanal gamepad -->
 <div class="screen" id="pad">
   <div class="badge" id="badge"></div>
-  <div class="hint">Eğil + Yumruk / Tekme = özel vuruş</div>
+  <div class="hint">Eğil + Yumruk / Tekme: özel vuruş · ÖZEL: 10 sn'de dolar</div>
   <div class="cluster" id="stick">
     <i class="u">ZIPLA</i><i class="d">EĞİL</i><i class="l">SOL</i><i class="r">SAĞ</i>
     <div id="knob"></div>
   </div>
   <div class="cluster" id="actions">
+    <button class="btn special" id="spBtn" data-act="special">ÖZEL</button>
     <button class="btn punch" data-act="punch">YUMRUK</button>
     <button class="btn kick" data-act="kick">TEKME</button>
     <button class="btn block" data-act="block">BLOK</button>
@@ -180,6 +184,13 @@
     $('selTitle').textContent = CHAR_NAMES[chosen] + ' hazır';
     document.querySelectorAll('.char').forEach((c) => (c.disabled = true));
     socket.emit('player:ready');
+  });
+
+  /* ---------- Özel yetenek doluluğu (tahtadan gelir) ---------- */
+  socket.on('special:charge', (v) => {
+    const b = $('spBtn');
+    b.style.setProperty('--c', v);
+    b.classList.toggle('ready', v >= 1);
   });
 
   /* ---------- Oyun başladı / bitti ---------- */

@@ -72,6 +72,13 @@
     #roomCode { font-size: 8vw; } .slot .who { font-size: 5vw; } .slot .state { font-size: 4vw; }
     #joinUrl { font-size: 2.4vw; max-width: 80vw; }
   }
+  .sp { height: .9vh; margin-top: .7vh; background: #1a1613; border: 2px solid #4a433c; }
+  .sp b { display: block; height: 100%; width: 0; background: #8a7548; }
+  .side.p2 .sp { transform: scaleX(-1); }
+  .pips { display: flex; gap: .6vw; margin-top: .8vh; }
+  .side.p2 .pips { justify-content: flex-end; }
+  .pips i { width: 1.2vw; height: 1.2vw; border: 2px solid #8a7548; border-radius: 50%; }
+  .pips i.w { background: var(--gold); }
 </style>
 </head>
 <body>
@@ -81,6 +88,7 @@
   <div>
     <h1>DÖVÜŞ<br>ARENASI</h1>
     <p class="lead">Telefonunla QR kodu tara, karakterini seç ve HAZIR'a bas.</p>
+    <p class="lead" id="soundHint" style="opacity:.6;font-size:1.6vw">Ses için bu ekrana bir kez dokun ya da tıkla.</p>
     <div class="qrbox">
       <div id="qr"></div>
       <div id="roomCode">ROOM-····</div>
@@ -98,11 +106,13 @@
   <div class="side p1">
     <div class="name" id="nameP1">P1</div>
     <div class="bar"><div class="chip" id="chipP1"></div><div class="fill" id="fillP1"></div></div>
+    <div class="sp"><b id="spP1"></b></div><div class="pips" id="pipsP1"></div>
   </div>
-  <div class="vs">VS</div>
+  <div class="vs" id="roundLabel">VS</div>
   <div class="side p2">
     <div class="name" id="nameP2">P2</div>
     <div class="bar"><div class="chip" id="chipP2"></div><div class="fill" id="fillP2"></div></div>
+    <div class="sp"><b id="spP2"></b></div><div class="pips" id="pipsP2"></div>
   </div>
 </div>
 <div id="banner"></div>
@@ -120,9 +130,54 @@ import * as THREE from 'three';
 const $ = (id) => document.getElementById(id);
 const socket = io();
 
+/* =========================================================
+   SES (tarayıcıda üretilir, ses dosyası gerekmez)
+   ========================================================= */
+let AC = null, master = null;
+function unlockAudio() {
+  if (AC) { AC.resume(); return; }
+  try {
+    AC = new (window.AudioContext || window.webkitAudioContext)();
+    master = AC.createGain(); master.gain.value = .5; master.connect(AC.destination);
+  } catch (e) { return; }
+  $('soundHint').style.display = 'none';
+}
+['pointerdown', 'keydown'].forEach((ev) => addEventListener(ev, unlockAudio));
+function tone(freq, dur, type, vol, slide, delay) {
+  if (!AC) return;
+  const t = AC.currentTime + (delay || 0), o = AC.createOscillator(), g = AC.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(freq, t);
+  if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(20, freq + slide), t + dur);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + dur);
+}
+function swish(dur, f0, f1, vol, delay) {
+  if (!AC) return;
+  const t = AC.currentTime + (delay || 0);
+  const buf = AC.createBuffer(1, Math.floor(AC.sampleRate * dur), AC.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  const src = AC.createBufferSource(), f = AC.createBiquadFilter(), g = AC.createGain();
+  src.buffer = buf; f.type = 'bandpass'; f.Q.value = 1.2;
+  f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
+  src.connect(f); f.connect(g); g.connect(master); src.start(t);
+}
+const SFX = {
+  whoosh: () => swish(.15, 600, 2200, .22),
+  hit:    (big) => { swish(.1, 3000, 300, .5); tone(big ? 90 : 130, .18, 'triangle', .6, -60); },
+  block:  () => { tone(900, .08, 'square', .15, -300); swish(.06, 4000, 2000, .2); },
+  ko:     () => { tone(160, .9, 'sawtooth', .35, -120); swish(.5, 1200, 100, .4); },
+  gong:   () => { tone(110, 1.6, 'sine', .5); tone(165, 1.4, 'sine', .25); tone(277, 1.2, 'sine', .12); },
+  fire:   () => { swish(.4, 300, 1800, .4); tone(180, .4, 'sawtooth', .15, 200); },
+  ice:    () => { tone(1500, .5, 'sine', .2, 600); tone(2200, .4, 'triangle', .12, -500, .05); swish(.3, 5000, 2500, .15); },
+  fight:  () => tone(220, .5, 'sawtooth', .25, -60),
+};
+function sfx(name, arg) { if (AC) SFX[name](arg); }
+
 const CHARS = {
-  flame: { name: 'Flame Warrior', color: 0xa3382c },
-  ice:   { name: 'Ice Ninja',     color: 0x4f6f86, mask: true },
+  flame: { name: 'Flame Warrior', color: 0xa3382c, power: 'fire' },
+  ice:   { name: 'Ice Ninja',     color: 0x4f6f86, mask: true, power: 'ice' },
 };
 
 /* =========================================================
@@ -171,18 +226,19 @@ socket.on('disconnect', () => { $('closed').style.display = 'grid'; });
    SAHNE
    ========================================================= */
 const ARENA = 8;            // x sınırı
-const W = 1.0, H = 2.4, CH = 1.4, D = 0.7; // gövde ölçüleri (ayakta / eğilmiş)
+const W = 1.0, H = 2.4, CH = 1.4, D = 0.7;
+const HW = .3, SPECIAL_CD = 10, MAX_ROUNDS = 3;   // HW: gerçek vurulma genişliği (yarım) // gövde ölçüleri (ayakta / eğilmiş)
 const SPEED = 5, JUMP = 11, GRAVITY = 28;
 
 const ATTACKS = {
-  punch:    { start: .09, end: .20, total: .34, dmg: 6,  reach: 1.0, y0: 1.45, y1: 2.05, push: 5, lunge: 2.5 },
-  kick:     { start: .16, end: .32, total: .55, dmg: 10, reach: 1.4, y0: .6,   y1: 1.5,  push: 8, lunge: 3 },
+  punch:    { start: .09, end: .20, total: .34, dmg: 6,  reach: 1.0,  y0: 1.45, y1: 2.05, push: 5, lunge: 2.5 },
+  kick:     { start: .16, end: .32, total: .55, dmg: 10, reach: 1.3,  y0: .6,   y1: 1.5,  push: 8, lunge: 3 },
   // Özel vuruşlar: eğil + yumruk / eğil + tekme (blok delinir, rakip yere düşer)
-  uppercut: { start: .12, end: .28, total: .62, dmg: 14, reach: 1.0, y0: .4,   y1: 2.7,  push: 3, knock: true, launch: 9, lunge: 1.5 },
-  sweep:    { start: .18, end: .34, total: .68, dmg: 12, reach: 1.5, y0: 0,    y1: .5,   push: 6, knock: true, launch: 5, lunge: 3.5 },
-  // Havada
-  jpunch:   { start: .06, end: .30, total: .45, dmg: 7,  reach: 1.0, y0: 1.2,  y1: 2.0,  push: 5 },
-  jkick:    { start: .06, end: .32, total: .45, dmg: 9,  reach: 1.3, y0: .2,   y1: 1.1,  push: 6 },
+  uppercut: { start: .12, end: .28, total: .62, dmg: 14, reach: .85,  y0: .4,   y1: 2.7,  push: 3, knock: true, launch: 9, lunge: 1.5 },
+  sweep:    { start: .18, end: .34, total: .68, dmg: 12, reach: 1.4,  y0: 0,    y1: .5,   push: 6, knock: true, launch: 5, lunge: 3.5 },
+  jpunch:   { start: .06, end: .30, total: .45, dmg: 7,  reach: 1.0,  y0: 1.2,  y1: 2.0,  push: 5 },
+  jkick:    { start: .06, end: .32, total: .45, dmg: 9,  reach: 1.2,  y0: .2,   y1: 1.1,  push: 6 },
+  cast:     { start: .22, end: .30, total: .55, dmg: 0,  reach: 0,    y0: 0,    y1: 0,    push: 0 },
 };
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -282,6 +338,7 @@ const POSE = {
   sweep:    P(10, .55, 40, 80, 20, 100, 88, -2, 70, -140),
   jpunch:   P(-14, 1.10, 92, 6, 10, 120, 70, -80, -5, -50),
   jkick:    P(16, 1.10, 20, 60, -30, 60, 95, -6, -10, -60),
+  cast:     P(-8, 1.0, 90, 10, 85, 15, 20, -30, -16, -24),
 };
 const SKIN = 0xb08f76;
 
@@ -295,7 +352,7 @@ class Fighter {
     this.keys = { left: false, right: false, jump: false, crouch: false, block: false };
     this.attack = null; this.stun = 0; this.down = 0; this.fall = 0;
     this.crouching = false; this.blocking = false; this.ko = false;
-    this.moving = 0; this.ph = 0; this.jumpReady = true;
+    this.moving = 0; this.ph = 0; this.jumpReady = true; this.charge = 0; this.frozen = false;
     this.cur = POSE.guard.slice();
 
     const col = new THREE.Color(this.char.color);
@@ -352,8 +409,8 @@ class Fighter {
 
   box() {
     return new THREE.Box3(
-      new THREE.Vector3(this.x - W / 2, this.y, -D / 2),
-      new THREE.Vector3(this.x + W / 2, this.y + this.height, D / 2)
+      new THREE.Vector3(this.x - HW, this.y, -D / 2),
+      new THREE.Vector3(this.x + HW, this.y + this.height, D / 2)
     );
   }
 
@@ -364,12 +421,20 @@ class Fighter {
     if (this.y > 0.05) type = kind === 'punch' ? 'jpunch' : 'jkick';
     else if (this.keys.crouch) type = kind === 'punch' ? 'uppercut' : 'sweep';
     this.attack = { type, t: 0, hit: false };
+    sfx('whoosh');
+  }
+
+  // Karaktere özel yetenek (10 sn'de dolar): Flame = ateş topu, Ice = buz oku (rakibi dondurur)
+  cast() {
+    if (this.ko || this.down > 0 || this.attack || this.stun > 0 || this.blocking || this.charge < 1 || this.y > 0.05) return;
+    this.charge = 0;
+    this.attack = { type: 'cast', t: 0, hit: true, spawned: false };
   }
 
   attackBox() {
     const a = ATTACKS[this.attack.type];
-    const x0 = this.x + this.facing * (W / 2);
-    const x1 = this.x + this.facing * (W / 2 + a.reach);
+    const x0 = this.x;
+    const x1 = this.x + this.facing * a.reach;
     return new THREE.Box3(
       new THREE.Vector3(Math.min(x0, x1), this.y + a.y0, -0.5),
       new THREE.Vector3(Math.max(x0, x1), this.y + a.y1, 0.5)
@@ -380,7 +445,8 @@ class Fighter {
     const guarded = this.blocking && !a.knock;       // özel vuruşlar bloku deler
     const dmg = guarded ? Math.max(1, Math.round(a.dmg * 0.2)) : a.dmg;
     this.hp = Math.max(0, this.hp - dmg);
-    this.stun = guarded ? .12 : .28;
+    this.stun = guarded ? .12 : (a.stun || .28);
+    if (a.freeze && !guarded) this.frozen = true;
     this.attack = null;
     this.kx = from.facing * a.push * (guarded ? .5 : 1);
     if (a.knock && !guarded) { this.down = .9; this.vy = a.launch; }
@@ -389,12 +455,13 @@ class Fighter {
 
   update(dt, foe) {
     const k = this.keys, g = this.y <= 0;
+    this.charge = Math.min(1, this.charge + dt / SPECIAL_CD);
     if (this.down > 0) {                              // yerde: kontrol yok, dokunulmaz
       this.attack = null; this.stun = 0; this.blocking = this.crouching = false; this.moving = 0;
       if (!this.ko && g) this.down -= dt;
     } else {
       this.facing = Math.sign(foe.x - this.x) || this.facing;
-      if (this.stun > 0) { this.stun -= dt; this.blocking = this.crouching = false; this.moving = 0; }
+      if (this.stun > 0) { this.stun -= dt; if (this.stun <= 0) this.frozen = false; this.blocking = this.crouching = false; this.moving = 0; }
       else {
         this.blocking  = k.block  && g && !this.attack;
         this.crouching = k.crouch && g && !this.attack;
@@ -412,6 +479,11 @@ class Fighter {
     if (this.attack) {
       const a = ATTACKS[this.attack.type];
       this.attack.t += dt;
+      if (this.attack.type === 'cast' && !this.attack.spawned && this.attack.t >= a.start) {
+        this.attack.spawned = true;
+        projectiles.push(new Projectile(this, this.char.power));
+        sfx(this.char.power);
+      }
       if (g && this.attack.t > a.start && this.attack.t < a.end) this.x += this.facing * (a.lunge || 0) * dt;
       if (this.attack.t >= a.total) this.attack = null;
     }
@@ -461,7 +533,7 @@ class Fighter {
     this.root.scale.x = this.facing;
 
     const hurt = this.stun > 0;
-    this.mat.emissive.setHex(hurt ? 0x6b625a : 0x000000);
+    this.mat.emissive.setHex(this.frozen ? 0x5d7f95 : hurt ? 0x6b625a : 0x000000);
     this.mat.emissiveIntensity = 1;
     this.shield.visible = this.blocking;
     this.shield.position.set(.75, 1.3, 0);
@@ -486,22 +558,44 @@ function banner(html) {
   b.style.display = 'grid';
 }
 
+let wins = { P1: 0, P2: 0 }, round = 1, matchEnd = false, matchPlayers = null, fightShown = false;
+function drawPips() {
+  for (const s of ['P1', 'P2'])
+    $('pips' + s).innerHTML = [0, 1, 2].map((i) => '<i class="' + (i < wins[s] ? 'w' : '') + '"></i>').join('');
+}
 function startGame(players) {
   stopGame();
+  matchPlayers = players; wins = { P1: 0, P2: 0 }; round = 1; matchEnd = false;
+  $('hud').style.display = 'grid';
+  startRound();
+}
+function startRound() {
+  if (fighters) for (const f of Object.values(fighters)) scene.remove(f.group);
+  clearProjectiles();
   fighters = {
-    P1: new Fighter('P1', players.P1.character, -3),
-    P2: new Fighter('P2', players.P2.character,  3),
+    P1: new Fighter('P1', matchPlayers.P1.character, -3),
+    P2: new Fighter('P2', matchPlayers.P2.character,  3),
   };
   $('nameP1').textContent = 'P1 · ' + fighters.P1.char.name;
   $('nameP2').textContent = 'P2 · ' + fighters.P2.char.name;
-  $('hud').style.display = 'grid';
-  phase = 'intro'; phaseTimer = 1.4;
-  banner('DÖVÜŞ!');
+  $('roundLabel').textContent = 'RAUND ' + round + '/' + MAX_ROUNDS;
+  drawPips();
+  phase = 'intro'; phaseTimer = 2; fightShown = false;
+  banner('RAUND ' + round + '<small>Hazırlan</small>'); sfx('gong');
+}
+function nextRound() {
+  if (round < MAX_ROUNDS) { round++; startRound(); }
+  else if (!matchEnd) {
+    matchEnd = true; phaseTimer = 5;
+    const w = wins.P1 > wins.P2 ? fighters.P1 : fighters.P2;
+    banner('<span style="color:#b08d43">' + w.slot + ' MAÇI KAZANDI</span><small>' + w.char.name + ' · ' + wins.P1 + ' – ' + wins.P2 + '</small>');
+    sfx('gong');
+  } else { phase = 'idle'; socket.emit('host:reset'); }
 }
 
 function stopGame() {
   if (fighters) for (const f of Object.values(fighters)) scene.remove(f.group);
-  fighters = null; phase = 'idle';
+  fighters = null; phase = 'idle'; clearProjectiles();
   $('hud').style.display = 'none';
   banner(null);
 }
@@ -512,6 +606,7 @@ socket.on('input', ({ slot, action, pressed }) => {
   const f = fighters[slot];
   if (!f) return;
   if (action === 'punch' || action === 'kick') { if (pressed) f.startAttack(action); }
+  else if (action === 'special') { if (pressed) f.cast(); }
   else f.keys[action] = pressed;
 });
 
@@ -522,16 +617,19 @@ function resolveHits(att, def) {
   if (att.attackBox().intersectsBox(def.box())) {
     att.attack.hit = true;
     const guarded = def.takeHit(att, a);
+    sfx(guarded ? 'block' : 'hit', !guarded && a.knock);
     shake = guarded ? .08 : (a.knock ? .4 : .25);
     if (def.hp <= 0) endRound(att, def);
   }
 }
 
 function endRound(winner, loser) {
-  phase = 'over'; phaseTimer = 4;
+  phase = 'over'; phaseTimer = 3.2; clearProjectiles();
+  wins[winner.slot]++; drawPips();
   loser.ko = true; loser.down = 1; loser.kx = winner.facing * 6;
   winner.keys = { left: false, right: false, jump: false, crouch: false, block: false };
-  banner('<span style="color:#a3382c">K.O.</span><small>' + winner.slot + ' · ' + winner.char.name + ' kazandı</small>');
+  sfx('ko');
+  banner('<span style="color:#a3382c">K.O.</span><small>' + winner.slot + ' · ' + winner.char.name + ' raundu aldı</small>');
 }
 
 function separate(a, b) {
@@ -549,7 +647,48 @@ function updateHud(dt) {
     f.chip = Math.max(f.hp, f.chip - 25 * dt);
     $('fill' + s).style.width = f.hp + '%';
     $('chip' + s).style.width = f.chip + '%';
+    $('sp' + s).style.width = (f.charge * 100) + '%';
+    $('sp' + s).style.background = f.charge >= 1 ? '#d8cfbf' : '#8a7548';
   }
+}
+
+const projectiles = [];
+class Projectile {
+  constructor(owner, kind) {
+    this.owner = owner; this.kind = kind; this.dir = owner.facing;
+    this.x = owner.x + owner.facing * .9; this.y = owner.y + 1.6; this.life = 2.5;
+    const fire = kind === 'fire', col = fire ? 0xc0652a : 0x9fc4d8;
+    this.mesh = new THREE.Mesh(
+      fire ? new THREE.SphereGeometry(.32, 12, 10) : new THREE.ConeGeometry(.2, 1.1, 8),
+      new THREE.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: .35, roughness: .6 })
+    );
+    if (!fire) this.mesh.rotation.z = -this.dir * Math.PI / 2;
+    this.mesh.castShadow = true; scene.add(this.mesh);
+  }
+}
+function updateProjectiles(dt) {
+  for (let i = projectiles.length - 1; i >= 0; i--) {
+    const p = projectiles[i], foe = fighters[p.owner.slot === 'P1' ? 'P2' : 'P1'];
+    p.x += p.dir * 10 * dt; p.life -= dt;
+    p.mesh.position.set(p.x, p.y, 0);
+    let dead = p.life <= 0 || Math.abs(p.x) > 14;
+    // eğilen rakip ateş/buz okundan kaçar, zıplayan kaçamaz
+    if (!dead && foe.down <= 0 && Math.abs(p.x - foe.x) < HW + .3 && p.y > foe.y && p.y < foe.y + foe.height) {
+      const a = p.kind === 'fire' ? { dmg: 12, push: 6, stun: .3 } : { dmg: 8, push: 0, stun: 1.0, freeze: true };
+      const guarded = foe.takeHit(p.owner, a);
+      sfx(guarded ? 'block' : 'hit'); shake = guarded ? .08 : .25;
+      if (foe.hp <= 0) endRound(p.owner, foe);
+      dead = true;
+    }
+    if (dead) { scene.remove(p.mesh); projectiles.splice(i, 1); }
+  }
+}
+function clearProjectiles() { for (const p of projectiles) scene.remove(p.mesh); projectiles.length = 0; }
+
+let chargeTimer = 0;
+function pumpCharge(dt) {
+  chargeTimer += dt; if (chargeTimer < .25) return; chargeTimer = 0;
+  for (const s of ['P1', 'P2']) socket.emit('host:charge', { slot: s, charge: fighters[s].charge });
 }
 
 const clock = new THREE.Clock();
@@ -562,6 +701,7 @@ function loop() {
     const { P1, P2 } = fighters;
     if (phase === 'intro') {
       phaseTimer -= dt;
+      if (phaseTimer <= .9 && !fightShown) { fightShown = true; banner('DÖVÜŞ!'); sfx('fight'); }
       if (phaseTimer <= 0) { phase = 'fight'; banner(null); }
     }
     if (phase === 'fight' || phase === 'over') {
@@ -570,13 +710,14 @@ function loop() {
       P1.x = Math.max(-ARENA, Math.min(ARENA, P1.x));
       P2.x = Math.max(-ARENA, Math.min(ARENA, P2.x));
       if (phase === 'fight') { resolveHits(P1, P2); if (phase === 'fight') resolveHits(P2, P1); }
+      if (phase === 'fight') updateProjectiles(dt);
     }
     if (phase === 'over') {
       phaseTimer -= dt;
-      if (phaseTimer <= 0) { phase = 'idle'; socket.emit('host:reset'); }
+      if (phaseTimer <= 0) nextRound();
     }
     P1.render(time, dt); P2.render(time, dt);
-    updateHud(dt);
+    updateHud(dt); pumpCharge(dt);
   }
 
   // hafif kamera sarsıntısı (kamera açısı sabit kalır)
